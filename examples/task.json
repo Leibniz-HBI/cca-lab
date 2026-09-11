@@ -1,0 +1,33 @@
+{
+  "name": "Position zur Maßnahme",
+  "description": "Beispielkodierbuch; Untersuchungsgegenstand vor produktivem Einsatz konkretisieren.",
+  "instructions": "Klassifiziere die im Text ausgedrückte Position zur untersuchten Maßnahme. Unterscheide Zustimmung, Ablehnung und fehlende eindeutige Position. Bewerte die Aussage des Textes, nicht deine eigene Haltung.",
+  "mode": "single",
+  "categories": [
+    {
+      "label": "FOR",
+      "definition": "Der Text befürwortet die Maßnahme.",
+      "examples": [
+        "Wir sollten diese Maßnahme unterstützen."
+      ]
+    },
+    {
+      "label": "AGAINST",
+      "definition": "Der Text lehnt die Maßnahme ab.",
+      "examples": [
+        "Diese Maßnahme lehne ich entschieden ab."
+      ]
+    },
+    {
+      "label": "NO",
+      "definition": "Keine eindeutige Position erkennbar, rein beschreibend oder unauflösbar widersprüchlich.",
+      "examples": [
+        "Der Ausschuss hat heute über die Maßnahme beraten."
+      ]
+    }
+  ],
+  "examples": [],
+  "ambiguity_rule": "Verwende NO bei fehlender eindeutiger Position. Schließe aus einer bloßen Erwähnung nicht auf Zustimmung.",
+  "rationale": true,
+  "allow_empty": false
+}

@@ -1,0 +1,24 @@
+{
+  "name": "Zustimmung und Sicherheitsaspekte",
+  "instructions": "Kodiere ausdrückliche Zustimmung zur Maßnahme (SUPPORT) und inhaltliche Aussagen zur Sicherheit (SAFETY). Eine bloße verneinte Nennung eines Aspekts zählt nicht als Beleg. Mehrere Kategorien können zutreffen.",
+  "mode": "multi",
+  "allow_empty": true,
+  "rationale": false,
+  "evidence": false,
+  "categories": [
+    {
+      "label": "SUPPORT",
+      "definition": "Ausdrückliche Befürwortung der Maßnahme.",
+      "examples": [
+        "Die Maßnahme ist eine gute Idee."
+      ]
+    },
+    {
+      "label": "SAFETY",
+      "definition": "Inhaltliche Aussage oder Forderung zur Sicherheit der Maßnahme.",
+      "examples": [
+        "Die Sicherheit muss überprüft werden."
+      ]
+    }
+  ]
+}

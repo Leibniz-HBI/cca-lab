@@ -1,0 +1,7 @@
+doc_id,text,gold_label
+001,"Wir sollten diese Maßnahme unterstützen.",FOR
+002,"Diese Maßnahme lehne ich entschieden ab.",AGAINST
+003,"Der Ausschuss hat heute über die Maßnahme beraten.",NO
+004,"Die Maßnahme überzeugt mich und sollte umgesetzt werden.",FOR
+005,"Ich bin gegen diese Maßnahme.",AGAINST
+006,"Für nächste Woche ist eine weitere Sitzung angesetzt.",NO

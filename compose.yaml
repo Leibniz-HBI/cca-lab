@@ -1,0 +1,34 @@
+x-common: &common
+  build: .
+  image: textlab:local
+  restart: unless-stopped
+  init: true
+  env_file: .env
+  environment:
+    TEXTLAB_DATA: /data
+  volumes:
+    - textlab-data:/data
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  api:
+    <<: *common
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  worker:
+    <<: *common
+    command: ["python", "-m", "textlab.worker"]
+    stop_grace_period: 60s
+
+volumes:
+  textlab-data:

@@ -1,0 +1,27 @@
+import json
+import time
+
+from .db import dumps, uid
+from .models import Task
+
+
+def resolved_task(task, query):
+    obj = task.model_dump()
+    for field in ("rationale", "evidence"):
+        if getattr(query, field) is not None:
+            obj[field] = getattr(query, field)
+    return Task.model_validate(obj)
+
+
+def snapshot_for(task_row, profile_row, query, text_column):
+    task = resolved_task(Task.model_validate_json(task_row["spec"]), query)
+    return {"task": task.model_dump(), "task_id": task_row["id"], "task_revision": task_row["revision"],
+            "profile": json.loads(profile_row["spec"]), "query": query.model_dump(), "text_column": text_column,
+            "framework_version": "0.2.0"}
+
+
+def enqueue(db, name, dataset, snapshot, created=None):
+    id, now = uid(), time.time() if created is None else created
+    db.execute("INSERT INTO jobs(id,name,dataset_id,snapshot,status,total,created,updated) VALUES(?,?,?,?,?,?,?,?)", (
+        id, name, dataset["id"], dumps(snapshot), "queued", dataset["total"], now, now))
+    return id
