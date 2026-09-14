@@ -25,14 +25,14 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="TextLab", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.3.0", lifespan=lifespan)
 
 
 def get(db, table, id):
     # table is always a hard-coded internal identifier.
     row = db.execute(f"SELECT * FROM {table} WHERE id=?", (id,)).fetchone()
     if row is None:
-        raise HTTPException(404, "Nicht gefunden")
+        raise HTTPException(404, "Not found")
     return dict(row)
 
 
@@ -70,7 +70,7 @@ def edit_task(id: str, task: Task, revision: int):
         count = db.execute("UPDATE tasks SET spec=?,revision=revision+1,updated=? WHERE id=? AND revision=?", (
             task.model_dump_json(), time.time(), id, revision)).rowcount
         if not count:
-            raise HTTPException(409, "Task wurde zwischenzeitlich geändert; neu laden")
+            raise HTTPException(409, "Task has changed; reload before saving")
     return {"id": id}
 
 
@@ -116,12 +116,12 @@ def models(id: str):
     try:
         return {"models": available_models(profile)}
     except Exception as exc:
-        raise HTTPException(502, "Modellliste nicht verfügbar (" + type(exc).__name__ + "). URL und API-Key prüfen.") from exc
+        raise HTTPException(502, "Model list unavailable (" + type(exc).__name__ + "). Check the URL and API key.") from exc
 
 
 def dataset_row(row):
     result = dict(row)
-    result.pop("path", None)
+    result["csv_available"] = Path(result.pop("path")).is_file()
     result["columns"] = json.loads(result.pop("columns_json"))
     return result
 
@@ -129,7 +129,7 @@ def dataset_row(row):
 @app.post("/api/datasets", status_code=201)
 async def upload(request: Request, filename: str = "data.csv", delimiter: str = ",", encoding: Literal["utf-8-sig", "utf-8", "latin-1", "cp1252"] = "utf-8-sig"):
     if delimiter not in (",", ";", "\t", "|"):
-        raise HTTPException(422, "Ungültiges Trennzeichen")
+        raise HTTPException(422, "Invalid delimiter")
     limit = int(os.environ.get("TEXTLAB_MAX_UPLOAD_BYTES", 1024 ** 3))
     id = uid()
     path = root() / (id + ".csv")
@@ -139,10 +139,10 @@ async def upload(request: Request, filename: str = "data.csv", delimiter: str = 
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > limit:
-                    raise HTTPException(413, "Upload überschreitet das konfigurierte Größenlimit")
+                    raise HTTPException(413, "Upload exceeds the configured size limit")
                 output.write(chunk)
         if not size:
-            raise HTTPException(422, "Leere Datei")
+            raise HTTPException(422, "Empty file")
         with connect() as db:
             db.execute("INSERT INTO datasets(id,name,path,bytes,delimiter,encoding,status,created) VALUES(?,?,?,?,?,?,?,?)", (
                 id, Path(filename).name[:250], str(path), size, delimiter, encoding, "uploaded", time.time()))
@@ -172,10 +172,13 @@ def create_job(job: NewJob):
         profile = get(db, "profiles", job.profile_id)
         dataset = get(db, "datasets", job.dataset_id)
         if dataset["status"] != "ready" or dataset["total"] == 0:
-            raise HTTPException(409, "Datensatz muss vollständig importiert und nicht leer sein")
+            raise HTTPException(409, "Dataset must be fully imported and nonempty")
         if job.text_column not in json.loads(dataset["columns_json"]):
-            raise HTTPException(422, "Unbekannte Textspalte")
-        snapshot = snapshot_for(task, profile, job.query, job.text_column)
+            raise HTTPException(422, "Unknown text column")
+        try:
+            snapshot = snapshot_for(task, profile, job.query, job.text_column)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from exc
         id = enqueue(db, job.name, dataset, snapshot)
     return {"id": id}
 
@@ -187,6 +190,8 @@ def job_row(row, detail=False):
     result["task_name"] = snapshot["task"]["name"]
     if detail:
         result["snapshot"] = snapshot
+    from .runtime import runtime_metrics
+    result["runtime"] = runtime_metrics(result)
     return result
 
 
@@ -214,7 +219,7 @@ def control(id: str, action: Literal["pause", "resume", "cancel"]):
         db.execute("BEGIN IMMEDIATE")
         job = get(db, "jobs", id)
         if job["status"] not in allowed:
-            raise HTTPException(409, "Aktion für diesen Jobstatus nicht verfügbar")
+            raise HTTPException(409, "Action unavailable for this job status")
         db.execute("UPDATE jobs SET status=?,updated=? WHERE id=?", (target, time.time(), id))
     return {"status": target}
 
@@ -266,7 +271,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
         job = get(db, "jobs", id)
         dataset = get(db, "datasets", job["dataset_id"])
     if job["status"] not in ("completed", "completed_with_errors", "cancelled"):
-        raise HTTPException(409, "Für einen konsistenten Export Job abschließen oder abbrechen")
+        raise HTTPException(409, "Complete or cancel the job before exporting")
     headers = {"Content-Disposition": f'attachment; filename="textlab-{id}.{format}"'}
     if format == "jsonl":
         def json_chunks():
@@ -330,5 +335,9 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
 
 from .eval_api import router as evaluation_router
 app.include_router(evaluation_router)
+from .prediction import router as prediction_router
+from .removal import router as removal_router
+app.include_router(prediction_router)
+app.include_router(removal_router)
 
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="frontend")

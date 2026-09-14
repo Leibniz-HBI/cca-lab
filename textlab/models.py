@@ -21,6 +21,9 @@ class Example(StrictModel):
     rationale: str = ""
 
 
+ThinkingLevel = Literal["default", "off", "on", "minimal", "low", "medium", "high", "max"]
+
+
 class Task(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
@@ -28,18 +31,19 @@ class Task(StrictModel):
     mode: Literal["single", "multi"] = "single"
     categories: list[Category] = Field(min_length=2, max_length=200)
     examples: list[Example] = Field(default_factory=list, max_length=200)
-    ambiguity_rule: str = "Wähle die am besten belegte Kategorie. Leite keine nicht belegten Aussagen ab."
+    ambiguity_rule: str = "Choose the best supported category. Do not infer unsupported claims."
     allow_empty: bool = False
     rationale: bool = False
     evidence: bool = False
+    thinking: ThinkingLevel = "default"
 
     @model_validator(mode="after")
     def check(self):
         labels = [c.label for c in self.categories]
         if len(labels) != len(set(labels)):
-            raise ValueError("Labels müssen eindeutig sein")
+            raise ValueError("Labels must be unique")
         if self.mode == "single" and self.allow_empty:
-            raise ValueError("Leere Labels sind nur bei Multi-Label erlaubt; sonst Restkategorie definieren")
+            raise ValueError("Empty labels are only allowed for multi-label tasks; otherwise define a fallback category")
         for ex in self.examples:
             validate_labels(ex.labels, self)
         return self
@@ -47,14 +51,14 @@ class Task(StrictModel):
 
 def validate_labels(labels, task):
     if not isinstance(labels, list) or any(not isinstance(x, str) for x in labels):
-        raise ValueError("labels muss eine Liste von Strings sein")
+        raise ValueError("labels must be a list of strings")
     allowed = {c.label for c in task.categories}
     if any(x not in allowed for x in labels) or len(labels) != len(set(labels)):
-        raise ValueError("Unbekannte oder doppelte Labels")
+        raise ValueError("Unknown or duplicate labels")
     if task.mode == "single" and len(labels) != 1:
-        raise ValueError("Single-Label erwartet genau ein Label")
+        raise ValueError("Single-label tasks require exactly one label")
     if not labels and not task.allow_empty:
-        raise ValueError("Mindestens ein Label erwartet")
+        raise ValueError("At least one label is required")
 
 
 class Profile(StrictModel):
@@ -62,6 +66,7 @@ class Profile(StrictModel):
     provider: Literal["openai", "ollama", "mock"] = "openai"
     base_url: str = "http://host.docker.internal:8000/v1"
     api_key_env: str = ""
+    thinking_adapter: Literal["auto", "reasoning_effort", "chat_template"] = "auto"
     timeout: float = Field(default=120, ge=1, le=1800)
 
     @field_validator("base_url")
@@ -69,14 +74,14 @@ class Profile(StrictModel):
     def url(cls, value):
         u = urlsplit(value)
         if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
-            raise ValueError("HTTP(S)-Basis-URL ohne Zugangsdaten, Query oder Fragment erwartet")
+            raise ValueError("Expected an HTTP(S) base URL without credentials, query or fragment")
         return value.rstrip("/")
 
     @field_validator("api_key_env")
     @classmethod
     def env(cls, value):
         if value and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
-            raise ValueError("Name einer Umgebungsvariable erwartet")
+            raise ValueError("Expected an environment variable name")
         return value
 
 
@@ -95,13 +100,14 @@ class Query(StrictModel):
     overlong: Literal["error", "truncate"] = "error"
     rationale: bool | None = None
     evidence: bool | None = None
+    thinking: ThinkingLevel | None = None
 
     @field_validator("extra_body")
     @classmethod
     def extra(cls, value):
         reserved = {"messages", "model", "stream", "response_format", "format", "options", "temperature", "top_p", "max_tokens", "seed"}
         if reserved.intersection(value):
-            raise ValueError("extra_body darf kontrollierte Query-Felder nicht überschreiben")
+            raise ValueError("extra_body must not override controlled query fields")
         return value
 
 
@@ -127,9 +133,9 @@ class GoldSet(StrictModel):
     @model_validator(mode="after")
     def distinct_columns(self):
         if len({self.doc_id_column, self.text_column, self.gold_column}) != 3:
-            raise ValueError("doc_id, text und gold_label müssen verschiedene Spalten sein")
+            raise ValueError("doc_id, text and gold_label must be distinct columns")
         if self.mode == "single" and self.allow_empty:
-            raise ValueError("Leere Gold-Labels sind nur bei Multi-Label zulässig")
+            raise ValueError("Empty gold labels are only allowed in multi-label mode")
         return self
 
 
@@ -148,5 +154,21 @@ class NewEvaluation(StrictModel):
     @model_validator(mode="after")
     def unique_names(self):
         if len({v.name for v in self.variants}) != len(self.variants):
-            raise ValueError("Varianten benötigen eindeutige Namen")
+            raise ValueError("Variant names must be unique")
         return self
+
+
+class NewPrediction(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    dataset_id: str
+    task_ids: list[str] = Field(min_length=1, max_length=50)
+    profile_id: str
+    text_column: str
+    query: Query
+
+    @field_validator("task_ids")
+    @classmethod
+    def unique_tasks(cls, values):
+        if len(values) != len(set(values)):
+            raise ValueError("Choose each task only once")
+        return values

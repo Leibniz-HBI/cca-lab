@@ -20,7 +20,7 @@ router = APIRouter(prefix='/api', tags=['Evaluation'])
 def fetch(db, table, id):
     row = db.execute(f'SELECT * FROM {table} WHERE id=?',(id,)).fetchone()
     if row is None:
-        raise HTTPException(404,'Nicht gefunden')
+        raise HTTPException(404,'Not found')
     return dict(row)
 
 
@@ -43,12 +43,12 @@ def register_gold(spec: GoldSet):
         db.execute('BEGIN IMMEDIATE')
         dataset = fetch(db,'datasets',spec.dataset_id)
         if dataset['status'] != 'ready' or dataset['total'] == 0:
-            raise HTTPException(409,'Datensatz muss vollständig importiert und nicht leer sein')
+            raise HTTPException(409,'Dataset must be fully imported and nonempty')
         limit = int(os.environ.get('TEXTLAB_MAX_EVAL_ROWS','50000'))
         if dataset['total'] > limit:
-            raise HTTPException(422,f'Evaluationsdatensätze sind auf {limit} Zeilen begrenzt')
+            raise HTTPException(422,f'Evaluation datasets are limited to {limit} rows')
         if not {spec.doc_id_column,spec.text_column,spec.gold_column}.issubset(json.loads(dataset['columns_json'])):
-            raise HTTPException(422,'Spaltenzuordnung enthält unbekannte Spalten')
+            raise HTTPException(422,'Column mapping contains unknown columns')
         id = uid()
         db.execute('INSERT INTO gold_sets(id,dataset_id,spec,total,label_counts,created) VALUES(?,?,?,?,?,?)',(id,spec.dataset_id,spec.model_dump_json(),dataset['total'],'{}',time.time()))
         seen, counts = set(), Counter()
@@ -56,14 +56,14 @@ def register_gold(spec: GoldSet):
             data = json.loads(row['data'])
             doc_id = data[spec.doc_id_column].strip()
             if not doc_id or doc_id in seen:
-                raise HTTPException(422,f"Zeile {row['row_no']}: doc_id leer oder doppelt")
+                raise HTTPException(422,f"Row {row['row_no']}: doc_id is empty or duplicated")
             if not data[spec.text_column].strip():
-                raise HTTPException(422,f"Zeile {row['row_no']}: text ist leer")
+                raise HTTPException(422,f"Row {row['row_no']}: text is empty")
             seen.add(doc_id)
             try:
                 labels = gold_labels(data[spec.gold_column],spec)
             except ValueError as exc:
-                raise HTTPException(422,f"Zeile {row['row_no']}: {exc}") from exc
+                raise HTTPException(422,f"Row {row['row_no']}: {exc}") from exc
             counts.update(labels)
             db.execute('INSERT INTO gold_rows VALUES(?,?,?,?)',(id,row['row_no'],doc_id,dumps(labels)))
         db.execute('UPDATE gold_sets SET label_counts=? WHERE id=?',(dumps(dict(counts)),id))
@@ -88,20 +88,23 @@ def create_evaluation(spec: NewEvaluation):
         task_row = fetch(db,'tasks',spec.task_id)
         task = Task.model_validate_json(task_row['spec'])
         if mapping['mode'] != task.mode:
-            raise HTTPException(422,'Gold-Datensatz und Task müssen denselben Label-Modus haben')
+            raise HTTPException(422,'Gold dataset and task must use the same label mode')
         # Verify every gold assignment, including empty label sets, before enqueuing any request.
         for row in db.execute('SELECT row_no,labels FROM gold_rows WHERE gold_id=?',(spec.gold_id,)):
             try:
                 validate_labels(json.loads(row['labels']),task)
             except ValueError as exc:
-                raise HTTPException(422,f"Gold-Zeile {row['row_no']} passt nicht zum Task: {exc}") from exc
+                raise HTTPException(422,f"Gold-Row {row['row_no']} does not match task: {exc}") from exc
         dataset = fetch(db,'datasets',gold['dataset_id'])
         profiles = {v.profile_id:fetch(db,'profiles',v.profile_id) for v in spec.variants}
         id, now = uid(),time.time()
         db.execute('INSERT INTO evaluations(id,name,gold_id,task_snapshot,created) VALUES(?,?,?,?,?)',(id,spec.name,spec.gold_id,dumps({'task':task.model_dump(),'task_id':task_row['id'],'task_revision':task_row['revision']}),now))
         jobs = []
         for ordinal,variant in enumerate(spec.variants):
-            snapshot = snapshot_for(task_row,profiles[variant.profile_id],variant.query,mapping['text_column'])
+            try:
+                snapshot = snapshot_for(task_row,profiles[variant.profile_id],variant.query,mapping['text_column'])
+            except ValueError as exc:
+                raise HTTPException(422,str(exc)) from exc
             snapshot.update(evaluation_id=id,gold_id=spec.gold_id,variant=variant.name)
             job_id = enqueue(db,f'{spec.name} / {variant.name}',dataset,snapshot,now+ordinal*.000001)
             db.execute('INSERT INTO evaluation_runs VALUES(?,?,?,?)',(id,job_id,variant.name,ordinal))
@@ -113,8 +116,11 @@ def evaluation_info(db, row, detail=False):
     row = dict(row)
     row.pop('report_json',None)
     row['task_snapshot'] = json.loads(row['task_snapshot'])
-    runs = [dict(r) for r in db.execute('SELECT j.id,j.status,j.total,j.done,j.failed,j.snapshot,r.name FROM evaluation_runs r JOIN jobs j ON j.id=r.job_id WHERE r.evaluation_id=? ORDER BY r.ordinal',(row['id'],))]
+    runs = [dict(r) for r in db.execute('SELECT j.*,r.name AS variant_name FROM evaluation_runs r JOIN jobs j ON j.id=r.job_id WHERE r.evaluation_id=? ORDER BY r.ordinal',(row['id'],))]
     for run in runs:
+        from .runtime import runtime_metrics
+        run['runtime']=runtime_metrics(run)
+        run['name']=run.pop('variant_name')
         snapshot = json.loads(run.pop('snapshot'))
         run['model'] = snapshot['query']['model']
         run['query'] = snapshot['query']
@@ -159,14 +165,14 @@ def evaluation_control(id: str,action: Literal['pause','resume','cancel','retry-
         evaluation = fetch(db,'evaluations',id)
         if action == 'retry-report':
             if not evaluation['report_error']:
-                raise HTTPException(409,'Kein fehlgeschlagener Report')
+                raise HTTPException(409,'No failed report to retry')
             db.execute('UPDATE evaluations SET report_error=NULL WHERE id=?',(id,))
             return {'ok':True}
         allowed,target = {'pause':(('queued','running'),'pausing'),'resume':(('paused',),'queued'),'cancel':(('queued','running','paused','pausing'),'cancelling')}[action]
         placeholders = ','.join('?' for _ in allowed)
         count = db.execute(f'UPDATE jobs SET status=?,updated=? WHERE id IN (SELECT job_id FROM evaluation_runs WHERE evaluation_id=?) AND status IN ({placeholders})',(target,time.time(),id,*allowed)).rowcount
         if not count:
-            raise HTTPException(409,'Keine passende Variante für diese Aktion')
+            raise HTTPException(409,'No matching variant for this action')
     return {'updated_variants':count}
 
 
@@ -174,7 +180,7 @@ def ready_report(id):
     with connect() as db:
         evaluation = fetch(db,'evaluations',id)
     if not evaluation['report_json']:
-        raise HTTPException(409,evaluation['report_error'] or 'Report wird nach Abschluss aller Varianten vom Worker berechnet')
+        raise HTTPException(409,evaluation['report_error'] or 'The worker calculates the report after all variants finish')
     return json.loads(evaluation['report_json'])
 
 
@@ -212,7 +218,7 @@ def prediction_rows(id, job_id=None, after=0, limit=None):
     if job_id is not None:
         runs = [r for r in runs if r['job_id']==job_id]
         if not runs:
-            raise HTTPException(404,'Variante gehört nicht zu dieser Evaluation')
+            raise HTTPException(404,'Variant does not belong to this evaluation')
     for run in runs:
         cursor,emitted = after,0
         while True:

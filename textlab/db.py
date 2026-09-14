@@ -84,6 +84,15 @@ def init():
           evaluation_id TEXT NOT NULL REFERENCES evaluations(id),
           job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id), name TEXT NOT NULL, ordinal INTEGER NOT NULL,
           PRIMARY KEY(evaluation_id,job_id)) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS predictions (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, dataset_id TEXT NOT NULL REFERENCES datasets(id),
+          created REAL NOT NULL, artifact_status TEXT NOT NULL DEFAULT 'pending', artifact_error TEXT);
+        CREATE TABLE IF NOT EXISTS prediction_runs (
+          prediction_id TEXT NOT NULL REFERENCES predictions(id), job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),
+          task_name TEXT NOT NULL, ordinal INTEGER NOT NULL, PRIMARY KEY(prediction_id,job_id)) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS prediction_artifacts (
+          prediction_id TEXT NOT NULL REFERENCES predictions(id), format TEXT NOT NULL,
+          path TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(prediction_id,format)) WITHOUT ROWID;
         ''')
         # Additive, serialized migration from 0.1. API and worker may start together.
         db.execute("BEGIN IMMEDIATE")
@@ -91,7 +100,13 @@ def init():
         for name, definition in {"evidence": "TEXT NOT NULL DEFAULT '[]'", "thinking": "TEXT", "attempt_outputs": "TEXT NOT NULL DEFAULT '[]'"}.items():
             if name not in columns:
                 db.execute(f"ALTER TABLE results ADD COLUMN {name} {definition}")
-        db.execute("PRAGMA user_version=2")
+        old_jobs = {r[1] for r in db.execute("PRAGMA table_info(jobs)")}
+        for name, definition in {"started_at":"REAL", "finished_at":"REAL", "active_seconds":"REAL NOT NULL DEFAULT 0", "active_since":"REAL", "runtime_complete":"INTEGER NOT NULL DEFAULT 0"}.items():
+            if name not in old_jobs:
+                db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
+        if "active_seconds" not in old_jobs:
+            db.execute("UPDATE evaluations SET report_json=NULL,report_error=NULL")
+        db.execute("PRAGMA user_version=3")
 
 
 def heartbeat():

@@ -7,17 +7,10 @@ import warnings
 from collections import Counter
 
 from .db import connect, dumps
+from .runtime import runtime_metrics
 
 TERMINAL = ('completed', 'completed_with_errors', 'cancelled')
-POLICIES = {
-    'valid': 'Je Variante nur erfolgreich validierte Vorhersagen; die Dokumentmenge kann abweichen.',
-    'common': 'Identische Schnittmenge der in sämtlichen Varianten erfolgreich validierten Dokumente.',
-    'failures': 'Fehler und nicht bearbeitete Dokumente sind keine Label-Vorhersagen. Coverage zeigt ihren Anteil; accuracy_all zählt sie als falsch.',
-    'averages': 'Macro: alle Task-Klassen gleich gewichtet, auch ohne Gold-Support. Weighted: nach Gold-Support der ausgewählten Teilmenge. Micro: gepoolte TP/FP/FN.',
-    'undefined': 'Precision/Recall/F1 mit Nullnenner = 0. Kappa ohne definierten Nenner = null. MCC mit Nullnenner = 0 (scikit-learn-Konvention). Ohne auswertbare Dokumente sind Metriken null.',
-    'multilabel': 'Accuracy ist Exact-Match/Subset-Accuracy. Kappa und MCC je Klasse binär; deren Macro-Mittel sind keine globalen Multiclass-Koeffizienten.',
-    'evidence': 'Metriken bewerten ausschließlich Labels, nicht Begründungen, Textbelege oder Thinking. Validierungsfehler dieser optionalen Felder machen die gesamte Antwort ungültig.',
-}
+POLICIES = {'valid': 'Only valid predictions per variant; the document subset may differ between variants.', 'common': 'The identical intersection of documents with valid predictions from every variant.', 'failures': 'Failed and unprocessed documents are not label predictions. Coverage is the fraction with valid predictions; accuracy_all counts failures and unprocessed documents as incorrect.', 'averages': 'Macro weights every task class equally, including classes with no gold support. Weighted uses gold support in the selected subset. Micro pools TP/FP/FN.', 'undefined': 'Precision/recall/F1 with a zero denominator = 0. Undefined kappa = null. MCC with a zero denominator = 0 (scikit-learn convention). No valid documents = null metrics.', 'multilabel': 'Accuracy is exact-match/subset accuracy. Kappa and MCC are binary per class; their macro means are not global multiclass coefficients.', 'evidence': 'Metrics score labels only. Validation errors in optional rationale/evidence fields invalidate the whole response.', 'runtime': 'Runtime covers the entire variant, independent of scoring scope. Active seconds include requests, retries and batch processing, excluding queue time and pauses. Elapsed seconds include pauses after first start. Throughput is processed documents divided by active seconds. Mean document latency includes retries and overlaps under concurrency. Legacy or interrupted timing is unknown. Model load and cache effects may affect comparisons.'}
 
 
 def gold_labels(value, spec):
@@ -25,10 +18,10 @@ def gold_labels(value, spec):
     if not value:
         if spec.mode == 'multi' and spec.allow_empty:
             return []
-        raise ValueError('Leeres Gold-Label')
+        raise ValueError('Empty gold label')
     labels = [v.strip() for v in value.split(spec.separator)] if spec.mode == 'multi' else [value]
     if any(not label for label in labels) or len(set(labels)) != len(labels):
-        raise ValueError('Leere oder doppelte Label-Komponente')
+        raise ValueError('Empty or duplicate label component')
     return labels
 
 
@@ -111,7 +104,7 @@ def build_report(evaluation_id):
         gold = {r['row_no']:json.loads(r['labels']) for r in db.execute('SELECT row_no,labels FROM gold_rows WHERE gold_id=? ORDER BY row_no',(evaluation['gold_id'],))}
         runs = [dict(r) for r in db.execute('SELECT j.*,r.name variant_name,r.ordinal FROM evaluation_runs r JOIN jobs j ON j.id=r.job_id WHERE r.evaluation_id=? ORDER BY r.ordinal',(evaluation_id,))]
     if not runs or any(r['status'] not in TERMINAL for r in runs):
-        raise ValueError('Evaluation ist noch nicht abgeschlossen')
+        raise ValueError('Evaluation is not yet finished')
     common = set(gold)
     for run in runs:
         with connect() as db:
@@ -119,7 +112,7 @@ def build_report(evaluation_id):
     task_snapshot = json.loads(evaluation['task_snapshot'])
     task = task_snapshot['task']
     labels = [c['label'] for c in task['categories']]
-    report = {'schema_version':1,'framework_version':'0.2.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
+    report = {'schema_version':1,'framework_version':'0.3.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
               'task_snapshot':task_snapshot,'gold':{'id':gold_set['id'],'total':len(gold),'spec':json.loads(gold_set['spec']),'label_counts':json.loads(gold_set['label_counts'])},
               'labels':labels,'mode':task['mode'],'policies':POLICIES,'common_n':len(common),'scopes':{'valid':{'runs':[]},'common':{'runs':[]}}}
     for run in runs:
@@ -129,7 +122,7 @@ def build_report(evaluation_id):
         item = {'job_id':run['id'],'variant':run['variant_name'],'status':run['status'],'snapshot':json.loads(run['snapshot']),
                 'gold_n':len(gold),'valid_n':len(predictions),'failed_n':run['failed'],'unprocessed_n':len(gold)-run['done'],
                 'coverage':len(predictions)/len(gold),'accuracy_all':exact_all/len(gold),
-                'requests':run['requests'],'prompt_tokens':run['prompt_tokens'],'completion_tokens':run['completion_tokens']}
+                'runtime':runtime_metrics(run),'requests':run['requests'],'prompt_tokens':run['prompt_tokens'],'completion_tokens':run['completion_tokens']}
         for scope, rows in (('valid',list(predictions)),('common',sorted(common))):
             result = score([gold[row] for row in rows],[predictions[row] for row in rows],labels,task['mode'])
             report['scopes'][scope]['runs'].append({**item,**result})
@@ -153,5 +146,5 @@ def finalize_one():
     except Exception:
         logging.getLogger(__name__).exception('Evaluation report failed: %s',row[0])
         with connect() as db:
-            db.execute("UPDATE evaluations SET report_error='Report konnte nicht berechnet werden; Serverlog prüfen.' WHERE id=?",(row[0],))
+            db.execute("UPDATE evaluations SET report_error='Report calculation failed; check server log.' WHERE id=?",(row[0],))
     return True

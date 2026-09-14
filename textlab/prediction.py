@@ -1,0 +1,177 @@
+"""Multi-task prediction batches with durable, streamed filesystem exports."""
+import csv
+import io
+import json
+import logging
+import os
+import shutil
+import time
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+
+from .db import connect, dumps, root, uid
+from .models import NewPrediction
+from .jobs import enqueue, snapshot_for
+from .runtime import runtime_metrics
+from .evaluation import TERMINAL
+from .eval_api import fetch
+
+router=APIRouter(prefix='/api/predictions',tags=['Prediction'])
+FORMATS={'csv','json','jsonl','parquet','manifest'}
+
+
+@router.post('',status_code=201)
+def create_prediction(spec: NewPrediction):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        dataset=fetch(db,'datasets',spec.dataset_id)
+        if dataset['status']!='ready' or not dataset['total']:
+            raise HTTPException(409,'Dataset must be fully imported and nonempty')
+        if spec.text_column not in json.loads(dataset['columns_json']):
+            raise HTTPException(422,'Unknown text column')
+        profile=fetch(db,'profiles',spec.profile_id)
+        tasks=[fetch(db,'tasks',id) for id in spec.task_ids]
+        id,now=uid(),time.time()
+        db.execute('INSERT INTO predictions(id,name,dataset_id,created) VALUES(?,?,?,?)',(id,spec.name,spec.dataset_id,now))
+        jobs=[]
+        for index,task in enumerate(tasks):
+            try:
+                snapshot=snapshot_for(task,profile,spec.query,spec.text_column)
+            except ValueError as exc:
+                raise HTTPException(422,str(exc)) from exc
+            snapshot['prediction_id']=id
+            name=snapshot['task']['name']
+            job=enqueue(db,f'{spec.name} / {name}',dataset,snapshot,now+index*.000001)
+            db.execute('INSERT INTO prediction_runs VALUES(?,?,?,?)',(id,job,name,index));jobs.append(job)
+    return {'id':id,'job_ids':jobs}
+
+
+def info(db,prediction):
+    p=dict(prediction)
+    runs=[dict(r) for r in db.execute('SELECT j.*,r.task_name FROM prediction_runs r JOIN jobs j ON j.id=r.job_id WHERE r.prediction_id=? ORDER BY r.ordinal',(p['id'],))]
+    for r in runs:
+        r['snapshot']=json.loads(r['snapshot']);r['runtime']=runtime_metrics(r)
+    states=[r['status'] for r in runs]
+    if p['artifact_status']=='failed':status='export_failed'
+    elif states and all(s in TERMINAL for s in states):
+        status=('cancelled' if all(s=='cancelled' for s in states) else 'completed_with_errors' if any(s!='completed' for s in states) else 'completed') if p['artifact_status']=='ready' else 'exporting'
+    else:
+        status=next((s for s in ('running','cancelling','pausing','queued','paused') if s in states),'queued')
+    p.update(runs=runs,status=status,total=sum(r['total'] for r in runs),done=sum(r['done'] for r in runs),failed=sum(r['failed'] for r in runs),artifacts=[dict(r) for r in db.execute('SELECT format,bytes FROM prediction_artifacts WHERE prediction_id=? ORDER BY format',(p['id'],))])
+    return p
+
+
+@router.get('')
+def list_predictions():
+    with connect() as db:
+        return [info(db,p) for p in db.execute('SELECT * FROM predictions ORDER BY created DESC LIMIT 500')]
+
+
+@router.get('/{id}')
+def detail(id: str):
+    with connect() as db:return info(db,fetch(db,'predictions',id))
+
+
+@router.post('/{id}/{action}')
+def control(id: str,action: str):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE');p=fetch(db,'predictions',id)
+        if action=='retry-export':
+            if p['artifact_status']!='failed':raise HTTPException(409,'No failed export to retry')
+            db.execute("UPDATE predictions SET artifact_status='pending',artifact_error=NULL WHERE id=?",(id,));return {'ok':True}
+        if action not in ('pause','resume','cancel'):raise HTTPException(422,'Unknown action')
+        allowed,target={'pause':(('queued','running'),'pausing'),'resume':(('paused',),'queued'),'cancel':(('queued','running','paused','pausing'),'cancelling')}[action]
+        count=db.execute(f"UPDATE jobs SET status=?,updated=? WHERE id IN (SELECT job_id FROM prediction_runs WHERE prediction_id=?) AND status IN ({','.join('?' for _ in allowed)})",(target,time.time(),id,*allowed)).rowcount
+        if not count:raise HTTPException(409,'No matching jobs for this action')
+    return {'updated_jobs':count}
+
+
+@router.get('/{id}/download/{format}')
+def download(id: str,format: str):
+    if format not in FORMATS:raise HTTPException(422,'Unsupported format')
+    with connect() as db:
+        p=fetch(db,'predictions',id)
+        if p['artifact_status']!='ready':raise HTTPException(409,'Exports are not ready')
+        row=db.execute('SELECT path FROM prediction_artifacts WHERE prediction_id=? AND format=?',(id,format)).fetchone()
+    if not row or not Path(row['path']).is_file():raise HTTPException(404,'Stored export is missing from disk')
+    return FileResponse(row['path'],filename=f'prediction-{id}.{format if format!="manifest" else "manifest.json"}')
+
+
+def prediction_rows(prediction):
+    with connect() as db:
+        runs=[dict(r) for r in db.execute('SELECT j.*,p.task_name FROM prediction_runs p JOIN jobs j ON j.id=p.job_id WHERE p.prediction_id=? ORDER BY p.ordinal',(prediction['id'],))]
+    for run in runs:
+        snapshot=json.loads(run['snapshot']);after=0
+        while True:
+            with connect() as db:
+                rows=db.execute('''SELECT d.row_no,d.data,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds,r.prompt_tokens,r.completion_tokens
+                FROM records d LEFT JOIN results r ON r.job_id=? AND r.row_no=d.row_no
+                WHERE d.dataset_id=? AND d.row_no>? ORDER BY d.row_no LIMIT 500''',(run['id'],prediction['dataset_id'],after)).fetchall()
+            if not rows:break
+            for row in rows:
+                out=dict(row);out['source']=json.loads(out.pop('data'))
+                out['labels']=json.loads(out['labels']) if out['status']=='ok' else None
+                out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
+                out.update(status=out['status'] or 'not_processed',task_id=snapshot['task_id'],task_name=run['task_name'],job_id=run['id'])
+                yield out
+            after=rows[-1]['row_no']
+
+
+def build_artifacts(prediction):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from .reports import safe_cell
+    from contextlib import ExitStack
+    base=root()/'predictions';base.mkdir(exist_ok=True)
+    staging=base/('.building-'+prediction['id']);final=base/prediction['id']
+    if staging.exists():shutil.rmtree(staging)
+    staging.mkdir()
+    with connect() as db:
+        dataset=fetch(db,'datasets',prediction['dataset_id'])
+        manifest=info(db,prediction)
+    columns=json.loads(dataset['columns_json'])
+    meta=['job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
+    fields=['source.'+c for c in columns]+['prediction.'+c for c in meta]
+    integer={'row_no','attempts','prompt_tokens','completion_tokens'}
+    schema=pa.schema([(f,pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f=='prediction.seconds' else pa.string()) for f in fields])
+    with ExitStack() as stack:
+        csvfile=stack.enter_context((staging/'results.csv').open('w',encoding='utf-8-sig',newline=''))
+        jsonfile=stack.enter_context((staging/'results.json').open('w',encoding='utf-8'))
+        jsonl=stack.enter_context((staging/'results.jsonl').open('w',encoding='utf-8'))
+        parquet=stack.enter_context(pq.ParquetWriter(staging/'results.parquet',schema,compression='zstd'))
+        writer=csv.DictWriter(csvfile,fieldnames=fields);writer.writeheader();jsonfile.write('[')
+        first=True;batch=[]
+        for row in prediction_rows(prediction):
+            serialized=dumps(row);jsonfile.write(('' if first else ',\n')+serialized);first=False;jsonl.write(serialized+'\n')
+            flat={'source.'+k:row['source'].get(k,'') for k in columns}
+            flat.update({'prediction.'+k:dumps(row[k]) if isinstance(row[k],(dict,list)) else row[k] for k in meta})
+            writer.writerow({k:safe_cell(v) for k,v in flat.items()});batch.append(flat)
+            if len(batch)==500:parquet.write_table(pa.Table.from_pylist(batch,schema=schema));batch.clear()
+        if batch:parquet.write_table(pa.Table.from_pylist(batch,schema=schema))
+        jsonfile.write(']\n')
+    manifest.update(artifact_status='ready',framework_version='0.3.0',layout='one row per source record and task',created_at=time.time())
+    (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+    if final.exists():shutil.rmtree(final)
+    os.replace(staging,final)
+    with connect() as db:
+        db.execute('DELETE FROM prediction_artifacts WHERE prediction_id=?',(prediction['id'],))
+        for format in FORMATS:
+            path=final/('manifest.json' if format=='manifest' else 'results.'+format)
+            db.execute('INSERT INTO prediction_artifacts VALUES(?,?,?,?)',(prediction['id'],format,str(path),path.stat().st_size))
+        db.execute("UPDATE predictions SET artifact_status='ready',artifact_error=NULL WHERE id=?",(prediction['id'],))
+
+
+def finalize_prediction():
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        p=db.execute("""SELECT * FROM predictions p WHERE artifact_status='pending' AND EXISTS(SELECT 1 FROM prediction_runs r WHERE r.prediction_id=p.id)
+        AND NOT EXISTS(SELECT 1 FROM prediction_runs r JOIN jobs j ON j.id=r.job_id WHERE r.prediction_id=p.id AND j.status NOT IN ('completed','completed_with_errors','cancelled')) ORDER BY created LIMIT 1""").fetchone()
+        if not p:return False
+        db.execute("UPDATE predictions SET artifact_status='building' WHERE id=?",(p['id'],))
+    try:build_artifacts(dict(p))
+    except Exception:
+        logging.getLogger(__name__).exception('Prediction export failed')
+        with connect() as db:db.execute("UPDATE predictions SET artifact_status='failed',artifact_error='Export failed; check worker log and available disk space.' WHERE id=?",(p['id'],))
+    return True

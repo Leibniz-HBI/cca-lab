@@ -1,36 +1,34 @@
-# TextLab 0.2.0 — LLM-basierte Textklassifikation und Evaluation
+# TextLab 0.3.0
 
-Eine lokal betreibbare Python-Anwendung mit REST-Backend, separatem Job-Worker und deutscher Weboberfläche. Für wiederholbare computergestützte Inhaltsanalysen mit Ollama, vLLM oder anderen OpenAI-kompatiblen Chat-APIs.
+A self-hosted Python workbench for LLM text classification, multi-task prediction and gold-standard evaluation. FastAPI serves an English web interface; a separate worker sends bounded parallel requests to Ollama or an OpenAI-compatible API such as vLLM. SQLite WAL stores tasks, datasets, job snapshots and results.
 
-## Neu in 0.2.0
+## New in this release
 
-Gold-Datensätze mit Spaltenmapping, Evaluationen über mehrere Modell-/Parameterkonfigurationen, Standardmetriken, Klassenvergleiche, Confusion-Matrizen und HTML-/CSV-/JSON-/SVG-/PNG-/ZIP-Reports. Begründungen und wortgetreue Textbelege sind unabhängig je Task oder Job konfigurierbar; vom Server ausgegebener Thinking-Text wird mitgespeichert.
+- English navigation, forms, feedback, reports and charts. Existing user-authored tasks and texts retain their original language.
+- Delete LLM connections, original CSV files, datasets, gold registrations, evaluations and prediction batches. Dependency checks block deletion of active runs; cascade deletion requires confirmation.
+- Task-level thinking: server default, disabled, enabled, minimal, low, medium, high or maximum. Model and provider support determines which settings are usable. Jobs and evaluation variants can override task settings.
+- Evaluation runtime comparison: active time, elapsed time, document throughput, successful document throughput, mean per-document latency and output-token throughput, alongside quality metrics.
+- **Prediction** workspace: select one dataset and multiple tasks. Each task produces an independent job. The worker saves combined CSV, JSON, JSONL, Parquet and manifest files on disk for repeated downloads.
 
-**Bedienung, Metrikdefinitionen, API und Upgrade-Anleitung:** [EVALUATION.md](EVALUATION.md). **Upgrade:** beide alten Prozesse stoppen, Quellcode im bisherigen Projektverzeichnis ersetzen und dasselbe Datenvolume weiterverwenden. Die Datenbank wird additiv migriert.
+For existing installations, follow [UPGRADE.md](UPGRADE.md). Evaluation details are in [EVALUATION.md](EVALUATION.md), and verification evidence is in [VALIDATION.md](VALIDATION.md).
 
-## Start mit Docker
+## Start with Docker
 
 ```bash
 cp .env.example .env
 docker compose up --build -d
 ```
 
-Oberfläche: http://localhost:8080 · REST-Dokumentation: http://localhost:8080/docs
+Open http://localhost:8080. Interactive API documentation: http://localhost:8080/docs.
 
 ```bash
 docker compose logs -f worker
 docker compose down
 ```
 
-Das benannte Volume `textlab-data` bewahrt Tasks, Jobs, Uploads und Ergebnisse. `docker compose down -v` würde diese Daten löschen. Die Container benötigen selbst keine GPU: Sie sprechen einen vorhandenen Modellserver über HTTP an. Docker/Compose müssen installiert sein; alternativ direkter Python-Betrieb unten.
+The named volume preserves data. Do not use `docker compose down -v` unless you intend to delete it. The containers call an existing model server; they do not need their own GPU. Compose binds the web port to localhost.
 
-Die Compose-Konfiguration bindet nur an 127.0.0.1. Für einen entfernten Server kann ein SSH-Tunnel genutzt werden:
-
-```bash
-ssh -L 8080:127.0.0.1:8080 benutzer@server
-```
-
-## Start direkt mit Python (Linux / WSL2)
+## Start directly with Python (Linux / WSL2)
 
 ```bash
 python3 -m venv .venv
@@ -41,7 +39,7 @@ export TEXTLAB_DATA="$PWD/data"
 python -m uvicorn textlab.api:app --host 127.0.0.1 --port 8080
 ```
 
-In einem zweiten Terminal, aus demselben Projektverzeichnis:
+In a second terminal, in the same project directory:
 
 ```bash
 source .venv/bin/activate
@@ -49,116 +47,118 @@ export TEXTLAB_DATA="$PWD/data"
 python -m textlab.worker
 ```
 
-Beide Prozesse müssen dasselbe Datenverzeichnis und dieselben API-Key-Umgebungsvariablen verwenden. Die `.env`-Datei wird von Docker Compose geladen; beim direkten Python-Start Umgebungsvariablen explizit setzen. Das Prozess-Locking nutzt `fcntl`; unter Windows WSL2 oder Docker verwenden.
+Both processes must share `TEXTLAB_DATA` and API-key environment variables. Compose loads `.env`; direct Python execution requires explicitly exported variables. Worker locking uses `fcntl`, so use Docker or WSL2 on Windows.
 
-## Erster Durchlauf
+## First prediction
 
-1. **Task-Bibliothek:** Task anlegen, Gegenstand in den Kodieranweisungen konkret benennen, Kategorien definieren und Beispiele ergänzen. FOR / AGAINST / NO sind ein bearbeitbarer Ausgangspunkt.
-2. **LLM-Verbindungen:** Profil für den Modellserver anlegen und mit „Modelle abfragen“ prüfen.
-3. **Datensätze:** `examples/texts.csv` oder eigene CSV hochladen; Trennzeichen und Kodierung wählen. Auf „Bereit“ warten.
-4. **Jobs:** Task, Datensatz, Textspalte, Profil und Modell auswählen. Parallelität und Query-Parameter konfigurieren.
-5. Job öffnen: Fortschritt, Fehler, Tokenzahlen und Ergebnisse ansehen. Pausieren, fortsetzen oder abbrechen. Nach Abschluss CSV, JSONL oder Parquet herunterladen.
+1. **Task library → New task:** define categories, instructions, examples and an ambiguity rule. Choose single-label or multi-label classification. Configure rationale, exact evidence quotes and thinking.
+2. **LLM connections → New connection:** configure your model server. Use **List models** to check it. The demo provider always returns the first category and is only a plumbing test.
+3. **Datasets → Upload CSV:** choose delimiter and encoding; wait for **Ready**.
+4. **Prediction → New prediction:** select the dataset, text column, one or more tasks, connection and model. Use Ctrl/Cmd to select multiple tasks. Advanced parameters can override task settings; by default each task retains its own settings.
+5. Open the prediction batch to monitor task runs, pause/resume/cancel, inspect individual results and download persisted exports.
 
-Ein Profil vom Typ **Demo** funktioniert ohne LLM. Es vergibt absichtlich immer das erste Label und dient ausschließlich dem Funktionstest, nicht einer inhaltlichen Analyse.
+The **Classification jobs** workspace remains available for individual jobs, including child runs belonging to predictions or evaluations.
 
-## Verbindungskonfiguration
+## Model connections and thinking
 
-| Server | API-Typ | Basis-URL bei Docker-Betrieb |
+| Provider | Example Docker base URL | Thinking mapping |
 |---|---|---|
-| vLLM | OpenAI-kompatibel | `http://host.docker.internal:8000/v1` |
-| Ollama | Ollama (native API) | `http://host.docker.internal:11434` |
-| Andere Chat-Completions-API | OpenAI-kompatibel | Basis-URL einschließlich des API-Präfixes, häufig `/v1` |
+| Ollama native | `http://host.docker.internal:11434` | `think: false`, `true`, or a supported level string |
+| OpenAI-compatible / vLLM, Auto or reasoning_effort adapter | `http://host.docker.internal:8000/v1` | `reasoning_effort`; disabled maps to `none`, enabled maps to `medium` |
+| OpenAI-compatible, Chat template adapter | Same as above | `chat_template_kwargs.enable_thinking`; on/off only |
 
-Bei direktem Python-Betrieb auf dem Modellserver kann `localhost` verwendet werden. Unter Linux muss ein Host-Modellserver auf einer vom Docker-Bridge-Netz erreichbaren Adresse lauschen; ein ausschließlich an 127.0.0.1 gebundener Modellserver ist über `host.docker.internal` nicht erreichbar.
+**Server default** sends no additional thinking control. Explicit settings that conflict with `extra_body` are rejected. The chat-template adapter rejects graded levels. Ollama rejects `minimal` locally; other unsupported model-level combinations can be rejected by the model server. Selecting disabled does not give a model a capability it lacks: use a model/server that supports the corresponding control. Model lists do not expose a reliable capability matrix.
 
-Das Profil speichert nur den **Namen** einer Umgebungsvariablen, z. B. `LLM_API_KEY`. Der Wert wird erst beim API-Aufruf aus der Prozessumgebung gelesen und nicht im Job-Snapshot gespeichert. Nach Änderung der `.env`-Datei Container neu erzeugen: `docker compose up -d --force-recreate`.
+Returned thinking is saved independently of requested rationale, including when a server returns it despite a disabled request. Ollama `message.thinking`, compatible API `reasoning`, `reasoning_content` or `thinking`, and explicit leading `<think>` blocks are supported. Only text actually returned by the server can be saved. Increase the output-token budget when thinking consumes it.
 
-Modelllisten stammen aus `GET /models` bzw. `GET /api/tags`. Eine Modell-ID lässt sich auch manuell eingeben. Structured Outputs werden über `response_format.json_schema` bzw. Ollamas `format` angefordert. Bei einem Server mit eingeschränkter Schema-Unterstützung kann im Job auf JSON-Objekt oder reine Prompt-Instruktion umgestellt werden; die lokale Ergebnisvalidierung bleibt aktiv.
+The profile stores the **name** of an API-key environment variable, not its value. Model IDs can be entered manually. Structured output can use JSON Schema, JSON object or prompt-only instructions; local validation always applies. A host model server must be reachable from the container network; host-only localhost binding may prevent this.
 
-Offizielle API-Referenzen:
-- https://docs.vllm.ai/en/latest/features/structured_outputs/
-- https://docs.ollama.com/api/chat
+## Task and result schema
 
-## Task-Modell und Auswertungskonventionen
+Tasks include name, description, mode, unique category labels and definitions, category-specific examples, global multi-label examples, instructions, ambiguity handling, optional empty multi-label selection, rationale, evidence and thinking. For single-label tasks, define a fallback category if needed. Include coding-unit definitions, exclusions and conflict-resolution rules in the instructions.
 
-Ein Task enthält:
-
-- Name, Beschreibung und allgemeine Kodieranweisungen, einschließlich Untersuchungsgegenstand und Kodiereinheit.
-- Eindeutige Labels, Definitionen und pro Kategorie eine Liste von Few-Shot-Texten. Diese Beispiele erhalten jeweils genau das zugehörige Label.
-- Zusätzliche Few-Shot-Beispiele als `{text, labels, rationale}`; damit sind auch echte Multi-Label-Beispiele möglich.
-- `single`: genau ein Label aus mehreren Klassen; `multi`: mehrere Labels, optional eine leere Auswahl.
-- Explizite Regel für unklare Fälle. Bei Single-Label eine eigene Restkategorie definieren, falls erforderlich.
-- Optional eine kurze Begründung als `rationale` und unabhängig davon wortgetreue Textbelege als `evidence`. Je Job sind diese Task-Vorgaben überschreibbar.
-
-Interner Output ist bewusst ein festes, streng validiertes JSON-Schema:
+When both optional output fields are enabled:
 
 ```json
-{"labels": ["FOR"], "rationale": "Der Text befürwortet die Maßnahme ausdrücklich."}
+{
+  "labels": ["FOR"],
+  "rationale": "The text explicitly supports the proposal.",
+  "evidence": [{"label": "FOR", "quote": "I support the proposal"}]
+}
 ```
 
-Ohne Begründungsoption darf das Feld `rationale` nicht ausgegeben werden. Unbekannte Labels, Duplikate, falsche Anzahl, zusätzliche Felder, Markdown-Codeblöcke und syntaktisch ungültiges JSON werden zurückgewiesen. Frei definierbare zusätzliche Output-Felder sind in v0.2 nicht vorgesehen. Downloadformate sind vom LLM-Output unabhängig.
+Unknown or duplicate labels, invalid cardinality, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with a selected label. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
 
-Für wissenschaftliche Tasks zusätzlich sinnvoll: Inklusions-/Exklusionskriterien, Prioritätsregeln bei widersprüchlichen Aussagen, Bezug auf Sprecher oder zitierten Akteur, Sprache und zeitlicher Kontext. Diese Regeln gehören in die Kodieranweisungen und Definitionen. Eine numerische Selbstkonfidenz des LLM wird nicht als kalibrierte Unsicherheit vorausgesetzt.
+Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Task JSON can be imported through `POST /api/tasks`; there is no separate JSON-import UI.
 
-Tasks sind editierbar und gegen versehentliches Überschreiben einer neueren Revision geschützt. Jeder Job speichert ein unveränderliches Snapshot seines Tasks, der Task-Revision, des Profils und aller Query-Parameter. Task-JSON und Job-Snapshot lassen sich herunterladen. Task-JSON kann über `POST /api/tasks` wieder eingelesen werden; für JSON-Import gibt es in v0.2 keinen separaten UI-Button.
+## Prediction storage and download formats
 
-## Architektur und Persistenz
+The worker streams results in batches of 500 into:
 
-```mermaid
-flowchart TD
-    UI["Weboberfläche"] --> API["FastAPI REST-Backend"]
-    API --> DB["SQLite WAL: Tasks, Jobs, Zeilen, Ergebnisse"]
-    API --> FILES["CSV-Dateien auf Datenträger"]
-    WORKER["Python-Worker"] --> FILES
-    WORKER --> DB
-    WORKER --> POOL["Begrenzter Thread-Pool"]
-    POOL --> LLM["Ollama / Chat-Completions-API"]
+```text
+TEXTLAB_DATA/
+  textlab.sqlite
+  <dataset_id>.csv
+  predictions/<prediction_id>/
+    results.csv
+    results.json
+    results.jsonl
+    results.parquet
+    manifest.json
 ```
 
-- Backend und Worker sind getrennte Prozesse/Container; das Frontend ist eine unabhängige HTML/CSS/JavaScript-Oberfläche, ausgeliefert vom Backend. Die Anwendungslogik ist Python. Ein separater Node-Build ist nicht erforderlich.
-- Genau ein Worker-Koordinator pro Datenverzeichnis; ein exklusives Prozess-Lock verhindert versehentliche Doppelstarts. Jobs laufen FIFO, pro Job mit 1–128 parallelen HTTP-Anfragen. Mehrere Jobs werden gespeichert, aber nicht gleichzeitig gerechnet.
-- CSV-Upload als gestreamter Request-Body direkt auf Datenträger. Standardlimit 1 GiB, konfigurierbar über `TEXTLAB_MAX_UPLOAD_BYTES`. Uploads sind nicht resumierbar; abgebrochene Verbindungen erfordern erneuten Upload.
-- Import mit `csv.DictReader`, Batches von 500 Zeilen. CSV muss eindeutige, nichtleere Spaltennamen, eine konsistente Spaltenzahl und höchstens 10 MiB je CSV-Feld haben. UTF-8/BOM, UTF-8, CP1252 und Latin-1 sind auswählbar. Mehrzeilige korrekt quotierte Felder werden unterstützt. Import läuft im Worker und hat gegenüber weiteren Klassifikationsbatches Vorrang.
-- Worker hält nur ein Fenster bis zur gewählten Parallelität im Speicher. Ergebnis und Jobzähler werden atomar gespeichert. Nach einem Absturz überspringt der Worker bereits gespeicherte Zeilen innerhalb des noch nicht abgeschlossenen Fensters.
-- Ein API-Aufruf, der vor einem Absturz erfolgreich war, dessen Ergebnis aber noch nicht gespeichert wurde, kann erneut ausgeführt werden: **At-least-once für API-Aufrufe, maximal eine gespeicherte Ergebniszeile je Job und Eingabezeile**. Externe API-Kosten können dabei doppelt anfallen.
-- Pausieren/Abbrechen stoppt neue Einreichungen. Laufende Anfragen einschließlich Retries laufen aus; Status bleibt solange „Wird pausiert“ bzw. „Wird abgebrochen“. Fortsetzen ist erst im Status „Pausiert“ möglich. Ein hartes Stoppen des Modellservers wird nicht versucht.
-- Ein abgebrochener CSV-Import startet nach Worker-Neustart von vorne. Ein syntaktisch fehlerhafter Import erhält Status „Fehler“ und kann nicht für einen Job verwendet werden.
-- Heartbeat zeigt die Erreichbarkeit des Workers. Fortschritts-/Tokenzähler sind inkrementell; ihre Anzeige scannt nicht sämtliche Ergebnisse.
+Files become downloadable after every task run has completed or cancellation has finished and all exports have been generated. An interrupted export is rebuilt after worker restart; failed exports have a **Retry exports** control. Files remain on disk until the batch or parent dataset is deleted. Generating all formats uses additional disk space and occupies the single worker until finished.
 
-## Fehler, Parameter und Exporte
+Each export contains **one row per input record and task**, including failed and unprocessed rows. `job_id`, `task_id`, task name and `row_no` identify the result. Original columns, labels, rationale, evidence, returned thinking, raw response, attempt logs, errors, token counts and per-text duration are retained.
 
-`retries=2` bedeutet maximal **drei Versuche** je Text. Ungültiger Output, Transportfehler, HTTP 408/429 und 5xx führen zu Wiederholungen mit exponentieller Wartezeit (maximal 30 s je Wartephase). Andere 4xx werden ohne Wiederholung als Fehler gespeichert. Es gibt in v0.2 keinen globalen Circuit Breaker oder serverübergreifenden Rate Limiter; bei anhaltenden Endpunktfehlern Job pausieren/abbrechen.
+| Format | Representation |
+|---|---|
+| CSV | UTF-8 BOM; `source.*` and `prediction.*` columns; nested values encoded as JSON strings |
+| JSON | Streaming-generated JSON array; original columns nested under `source`; labels and evidence are arrays |
+| JSONL | Same structured rows, one JSON object per line |
+| Parquet | Zstandard compression; flat columns matching CSV, nested values encoded as JSON strings |
+| Manifest | Configuration snapshots, task revisions, job identities and runtime measurements |
 
-Leere Texte oder überlange Texte werden ohne API-Aufruf als Fehler markiert. Abschneiden überlanger Texte ist eine ausdrücklich auswählbare Joboption; standardmäßig wird nicht abgeschnitten. Das Original bleibt im Datensatz erhalten. `max_text_chars` ist keine Tokenbudgetberechnung: Kodierbuch, Beispiele und Output müssen zusätzlich in das Kontextfenster passen.
+CSV prefixes potentially executable spreadsheet formula strings with an apostrophe. JSON/JSONL and Parquet retain raw strings. Input IDs such as `001` remain strings. Missing/failed predictions use null labels; valid empty multi-label predictions use `[]`.
 
-Unterstützt werden Modell-ID, Temperatur, Top-p, Seed, maximale Output-Tokens, Ausgabeformat, Parallelität, Retries, Beispiele je Kategorie, maximale Textlänge und zusätzliche API-Felder über `extra_body`. Einige Parameter hängen vom Modellserver ab. Die Anzahl zusätzlicher globaler Few-Shot-Beispiele wird nicht durch „Beispiele je Kategorie“ begrenzt. Identische Seeds garantieren nicht unter allen Backends bitgenau gleiche Ergebnisse.
+Individual classification-job exports retain the previous behavior: completed result rows only, downloaded on demand as CSV/JSONL/Parquet. Prediction exports additionally include unprocessed rows and persist all formats on disk.
 
-Exporte sind für abgeschlossene oder vollständig abgebrochene Jobs verfügbar. So bleiben sie während des Downloads konsistent. Bei Abbruch enthält der Export nur bereits gespeicherte Ergebnisse. Fehlerhafte Zeilen sind enthalten; nie gestartete Zeilen nicht.
+## Deletion
 
-- **CSV:** UTF-8 mit BOM; Originalspalten erhalten Präfix `source.`, Ergebnisfelder `classification.`. Labels sind JSON-Listen in einer Zelle. Potenziell als Tabellenformeln interpretierbare Strings erhalten ein vorangestelltes Apostroph; unveränderte Rohstrings gibt es in JSONL/Parquet.
-- **JSONL:** pro Zeile Ergebnis-Metadaten plus Originalspalten im Objekt `source`. Labels als echte Listen.
-- **Parquet:** blockweise erzeugt, Zstandard-Kompression, flache Spalten analog CSV; Labels als JSON-String. Temporäre Datei wird nach Auslieferung gelöscht.
+- **Delete CSV file** removes the uploaded original while preserving imported database records, gold registrations and results.
+- **Delete dataset** removes imported records, the original file and, after confirmation, dependent gold registrations, evaluations, prediction batches, jobs and their results/exports.
+- **Delete gold registration** optionally removes its dependent evaluations and their runs. The imported dataset remains.
+- **Delete evaluation** removes its runs, predictions and stored report. The gold registration remains.
+- **Delete prediction** removes its task runs and saved export directory. The source dataset remains.
+- **Delete connection/task** preserves existing job snapshots.
 
-Export enthält interne stabile `row_no` (1-basierter CSV-Datensatzindex, nicht physische Dateizeile), Labels, Begründung, Status, Fehler, letzte rohe Modellantwort, Versuche, Dauer und gemeldete Tokenzahlen. Zusätzlich werden Textbelege mit Zeichenpositionen, Thinking und die Ausgaben aller Versuche exportiert. Antworttexte werden in v0.2 nicht still gekürzt. Tokenzahlen umfassen alle Antworten eines Textes, soweit der Server sie meldet. Fehlende Tokenangaben erscheinen als 0. Die Ø-Dauer schließt Retry-Wartezeiten ein und ist keine Gesamtdurchsatzmessung.
+Active, queued or paused dependent jobs must finish or be cancelled and drained before deletion. CSV imports and prediction export generation must finish before their underlying data can be removed. SQLite may retain freed pages for reuse; deleting records does not necessarily shrink the database file immediately.
 
-## Große Datensätze und Betriebsgrenzen
+## Runtime and execution semantics
 
-Der Import- und Exportpfad verarbeitet Daten blockweise. Dateigröße und Datensatzanzahl bestimmen den Speicherplatzbedarf, nicht proportional den Python-RAM. Originaldatei, SQLite-Zeilen, Modelloutputs, WAL und gegebenenfalls Parquet-Datei benötigen zusammen mehr Platz als die Eingabe. Insbesondere lange Begründungen können den Ergebnisbestand deutlich vergrößern. Mehrere GiB freien Platz für einen 500-MB-Datensatz vorsehen und den tatsächlichen Ergebnisumfang beobachten.
+A single coordinator processes jobs FIFO, with 1–128 request threads per job. A prediction with N tasks over M texts makes N×M classifications, plus retries. More threads do not guarantee higher model throughput.
 
-SQLite/WAL ist für diesen Einzelserver-Koordinator gedacht; Datenverzeichnis auf lokalem Datenträger, nicht NFS. Horizontale Worker-Skalierung, mehrere koordinierte Server, Benutzer-/Rollenverwaltung, SSO und Quoten sind nicht implementiert. Dafür wären als nächste Architekturänderung PostgreSQL, eine explizite Lease-Queue und Authentifizierung sinnvoll. Die Anwendung ist für einen vertrauenswürdigen lokalen/SSH-Zugang vorgesehen; vor einem gemeinsam zugänglichen Betrieb eine Authentifizierung davor schalten.
+Active time sums timed worker batches, including API calls, retries and processing overhead. It excludes queue time, pauses, imports and other work between batches. Elapsed time runs from first start to finish and includes pauses. Mean per-document latency includes retries and overlaps across threads; it is not the reciprocal of job throughput. Legacy timing and timing interrupted by an unclean worker shutdown are reported as unknown. Runtime includes model loading and cache effects; use equivalent concurrency, inputs, budgets and warm-up conditions for comparisons.
 
-Persistierte Tasks/Profile/Jobs sind klein; Ergebnislisten nutzen Keyset-Pagination mit maximal 200 Zeilen pro Aufruf. Die Jobübersicht zeigt die letzten 500 Jobs. Es gibt noch keine UI für Datenlöschung, Archivierung, Retries ausschließlich fehlgeschlagener Zeilen, oder mehrere Kodiereinheiten. Gold-Standard-Evaluationen sind im separaten Evaluationsbereich verfügbar.
+Pause/cancel stops new submissions and waits for in-flight requests and retries. A crash may repeat an API call whose result was not committed; persisted results are unique per job/input row. `retries=2` permits three total attempts. Transient transport failures, invalid output and HTTP 408/429/5xx retry; other 4xx fail immediately. Empty or overlong texts fail without querying unless explicit truncation is selected.
 
-Eine Million Texte entsprechen einer Million separaten LLM-Anfragen, gegebenenfalls mehr durch Retries. Mehr Threads erhöhen nur die Anzahl gleichzeitiger Requests; GPU-Durchsatz, Kontextlänge und Server-Batching begrenzen die tatsächliche Geschwindigkeit. Für die Inhaltsvalidität separat annotierte Testdaten, Klassenverteilung und Fehlermuster prüfen.
+## Large datasets and operational limits
 
-Backups bei gestoppten Containern als vollständige Kopie des Volumes erstellen oder die SQLite-Backup-API verwenden. Eine isolierte Kopie nur der Hauptdatenbank während aktiver WAL-Schreibvorgänge ist kein vollständiges Backup.
+Uploads stream to disk; imports and prediction exports use bounded batches. Default upload limit is 1 GiB (`TEXTLAB_MAX_UPLOAD_BYTES`). CSV needs a header with unique nonempty column names, consistent column counts and fields no larger than 10 MiB. UTF-8/BOM, UTF-8, CP1252 and Latin-1 are supported. Uploads are not resumable. Interrupted imports restart from the beginning.
+
+A 500 MB input needs more than 500 MB storage: original CSV, database records, results, WAL and every prediction export are additional. Multiple tasks, rationale and thinking can increase storage substantially. RAM use is bounded by batch and output sizes rather than total input rows. Evaluation gold datasets have a separate default 50,000-row limit and at most 50 model configurations.
+
+This is a single-server, trusted-access application. It has no authentication, SSO, per-user quotas, distributed workers, automatic hyperparameter search or global rate limiter. Use local/SSH access or an authenticated reverse proxy. Keep SQLite on a local filesystem. Back up the full data directory with both processes stopped, or use a consistent SQLite backup plus associated files. Lists show the most recent 500 jobs/evaluations/predictions; results use keyset pagination.
 
 ## Tests
 
 ```bash
 pip install -e '.[test]'
 python -m pytest -q
-PYTHONPATH=. python tests/benchmark_import.py
 ```
 
-`VALIDATION.md` dokumentiert die tatsächlich durchgeführten Prüfungen und ihre Grenzen. Der Benchmark erzeugt temporär ca. 500 MB CSV sowie die zugehörige Datenbank; ausreichend freien Speicher vorhalten.
+Optional import benchmark (creates approximately 500 MB of temporary CSV plus database):
+
+```bash
+PYTHONPATH=. python tests/benchmark_import.py
+```

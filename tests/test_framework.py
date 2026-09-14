@@ -134,4 +134,4 @@ def test_provider_payload_retry(provider,monkeypatch):
 def test_permanent_http_error_no_retry():
     snap={'task':TASK,'query':{'model':'test','retries':2},'profile':{'name':'test','provider':'openai','base_url':'http://localhost'}}
     with httpx.Client(transport=httpx.MockTransport(lambda _:httpx.Response(401))) as c:r=classify(snap,'hello',c)
-    assert r['attempts']==1 and r['error']=='HTTP 401 vom Modell-Endpunkt'
+    assert r['attempts']==1 and r['error']=='HTTP 401 from model endpoint'

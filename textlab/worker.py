@@ -6,6 +6,7 @@ import logging
 import signal
 import threading
 import time
+from .runtime import timed_batch
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 import httpx
@@ -28,15 +29,15 @@ def import_dataset(dataset):
             reader = csv.DictReader(source, delimiter=dataset["delimiter"], strict=True)
             columns = reader.fieldnames
             if not columns or any(not c.strip() for c in columns) or len(set(columns)) != len(columns):
-                raise ValueError("CSV benötigt eindeutige, nichtleere Spaltennamen")
+                raise ValueError("CSV requires unique, nonempty column names")
             if len(columns) > 10000:
-                raise ValueError("Zu viele Spalten")
+                raise ValueError("Too many columns")
             with connect() as db:
                 db.execute("UPDATE datasets SET columns_json=? WHERE id=?", (dumps(columns), did))
             batch, total = [], 0
             for total, row in enumerate(reader, 1):
                 if None in row or any(v is None for v in row.values()):
-                    raise ValueError(f"Abweichende Spaltenzahl bei Datensatz {total}")
+                    raise ValueError(f"Inconsistent column count at record {total}")
                 batch.append((did, total, dumps(row)))
                 if len(batch) >= 500:
                     save_import(did, batch, total)
@@ -79,7 +80,7 @@ def run_batch(job):
             job["id"], job["cursor"], rows[-1]["row_no"] if rows else job["cursor"]))}
     if not rows:
         with connect() as db:
-            db.execute("UPDATE jobs SET status=CASE WHEN failed>0 THEN 'completed_with_errors' ELSE 'completed' END,updated=? WHERE id=? AND status='running'", (time.time(), job["id"]))
+            db.execute("UPDATE jobs SET status=CASE WHEN failed>0 THEN 'completed_with_errors' ELSE 'completed' END,updated=?,finished_at=? WHERE id=? AND status='running'", (time.time(), time.time(), job["id"]))
         return
     with httpx.Client(trust_env=False, limits=httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)) as client:
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -107,10 +108,13 @@ def run_batch(job):
 
 def tick():
     with connect() as db:
-        db.execute("UPDATE jobs SET status=CASE status WHEN 'pausing' THEN 'paused' ELSE 'cancelled' END,updated=? WHERE status IN ('pausing','cancelling')", (time.time(),))
+        db.execute("UPDATE jobs SET status=CASE status WHEN 'pausing' THEN 'paused' ELSE 'cancelled' END,finished_at=CASE WHEN status='cancelling' THEN ? ELSE finished_at END,updated=? WHERE status IN ('pausing','cancelling')", (time.time(),time.time()))
         dataset = db.execute("SELECT * FROM datasets WHERE status IN ('uploaded','importing') ORDER BY created LIMIT 1").fetchone()
     from .evaluation import finalize_one
     if finalize_one():
+        return True
+    from .prediction import finalize_prediction
+    if finalize_prediction():
         return True
     if dataset:
         import_dataset(dict(dataset))
@@ -121,11 +125,11 @@ def tick():
             db.execute("UPDATE jobs SET status='running',updated=? WHERE id=? AND status='queued'", (time.time(), job["id"]))
     if job:
         try:
-            run_batch(dict(job))
+            timed_batch(dict(job), run_batch)
         except Exception:
             log.exception("Job worker error for %s", job["id"])
             with connect() as db:
-                db.execute("UPDATE jobs SET status='paused',last_error='Interner Worker-Fehler; Serverlog prüfen',updated=? WHERE id=? AND status='running'", (time.time(), job["id"]))
+                db.execute("UPDATE jobs SET status='paused',last_error='Internal worker error; check server log',updated=? WHERE id=? AND status='running'", (time.time(), job["id"]))
         return True
     return False
 
@@ -143,7 +147,10 @@ def main():
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        raise SystemExit("Für dieses Datenverzeichnis läuft bereits ein Worker")
+        raise SystemExit("A worker is already running for this data directory")
+    with connect() as db:
+        db.execute("UPDATE jobs SET runtime_complete=0,active_since=NULL WHERE active_since IS NOT NULL")
+        db.execute("UPDATE predictions SET artifact_status='pending' WHERE artifact_status='building'")
     signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     signal.signal(signal.SIGINT, lambda *_: stopping.set())
     thread = threading.Thread(target=pulse, daemon=True)

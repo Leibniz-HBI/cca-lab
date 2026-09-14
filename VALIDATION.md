@@ -1,3 +1,17 @@
+# TextLab 0.3.0 validation
+
+- 44 automated tests passed with Python 3.12. This includes the existing classification/evaluation suite and new prediction, deletion, thinking-control and runtime tests.
+- Multi-task exports checked in CSV, JSON, JSONL and Parquet, including task identity, leading-zero IDs, rationale/evidence, snapshots after task edits/connection deletion, persisted file retrieval after database reinitialization, and cancelled/unprocessed rows.
+- Deletion tests cover active-job blocking, gold/evaluation dependencies, dataset cascade removal, file removal, and deleting an original CSV while preserving imported records.
+- Mock HTTP transport verifies actual Ollama and compatible API request fields for thinking on/off/levels; returned thinking is retained. Conflicting configurations are rejected.
+- Controlled-clock test verifies active time excludes a simulated pause while elapsed time includes it; legacy timing is unknown. Evaluation runtime is verified in JSON, CSV and rendered charts.
+- Playwright/Chromium browser workflow passed: English forms, two tasks with different thinking settings, gold registration, two-task prediction, persisted download links, evaluation runtime charts, all six new deletion controls, and no JavaScript/server errors. Desktop and mobile screenshots are included in `docs/` and were visually inspected.
+- Real Ollama/vLLM model servers and GPUs were not available for live inference testing. Mock timings are not model-performance benchmarks. Docker was not started in this validation run.
+- Three non-failing dependency warnings remain: Starlette TestClient/httpx deprecations and scikit-learn's single-class confusion-matrix warning in a metric comparison test.
+- The million-row import benchmark below is historical evidence from 0.1, not a new full-scale multi-task prediction benchmark. Version 0.3 preserves the bounded import path; aggregate prediction disk space grows with tasks and output formats.
+
+## Earlier validation records
+
 # Validierungsprotokoll — TextLab 0.2.0
 
 Abschlussprüfung am 11.09.2026 unter Linux und Python 3.12.
