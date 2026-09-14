@@ -25,7 +25,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="TextLab", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.4.0", lifespan=lifespan)
 
 
 def get(db, table, id):
@@ -234,8 +234,35 @@ def results(id: str, after: int = 0, limit: int = 50):
     return [result_row(r) for r in rows]
 
 
+
+def error_rows(id, after=0, limit=None, include_recovered=True):
+    with connect() as db:
+        job=get(db,'jobs',id)
+    emitted=0
+    while True:
+        size=min(200,limit-emitted) if limit is not None else 200
+        if size<=0:return
+        with connect() as db:
+            rows=db.execute("SELECT r.*,d.data FROM results r JOIN records d ON d.dataset_id=? AND d.row_no=r.row_no WHERE r.job_id=? AND r.error_count>0 AND r.row_no>?" + ("" if include_recovered else " AND r.status!='ok'") + " ORDER BY r.row_no LIMIT ?",(job['dataset_id'],id,after,size)).fetchall()
+        if not rows:return
+        for row in rows:yield result_row(row)
+        emitted+=len(rows);after=rows[-1]['row_no']
+
+
+@app.get('/api/jobs/{id}/errors')
+def job_errors(id: str, after: int=0, limit: int=50, include_recovered: bool=True, format: Literal['json','jsonl']='json'):
+    with connect() as db:
+        job=get(db,'jobs',id)
+        count=db.execute("SELECT COUNT(*) FROM results WHERE job_id=? AND error_count>0" + ("" if include_recovered else " AND status!='ok'"),(id,)).fetchone()[0]
+    if format=='jsonl':
+        return StreamingResponse((dumps(r)+'\n' for r in error_rows(id,after,include_recovered=include_recovered)),media_type='application/x-ndjson',headers={'Content-Disposition':f'attachment; filename="job-{id}-errors.jsonl"'})
+    rows=list(error_rows(id,after,min(max(limit,1),200),include_recovered))
+    return {'rows':rows,'total':count,'next_after':rows[-1]['row_no'] if rows else after,'last_error':job['last_error'], 'status':job['status']}
+
+
 def result_row(row):
     row = dict(row)
+    row["fallback_used"] = row["status"] == "fallback"
     row["labels"] = json.loads(row["labels"])
     for field in ("evidence", "attempt_outputs"):
         row[field] = json.loads(row[field])
@@ -262,7 +289,7 @@ def safe_cell(value):
     return value
 
 
-EXPORT_FIELDS = ["row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
+EXPORT_FIELDS = ["fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
 
 
 @app.get("/api/jobs/{id}/export")
@@ -316,7 +343,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
     fd, path = tempfile.mkstemp(suffix=".parquet", dir=root())
     os.close(fd)
     # Explicit schema also handles empty and all-null first row groups.
-    schema = pa.schema([(key, pa.int64() if key.split(".")[-1] in ("row_no", "attempts", "prompt_tokens", "completion_tokens") and key.startswith("classification.") else pa.float64() if key == "classification.seconds" else pa.string()) for key in fields])
+    schema = pa.schema([(key, pa.bool_() if key == "classification.fallback_used" else pa.int64() if key.split(".")[-1] in ("error_count", "row_no", "attempts", "prompt_tokens", "completion_tokens") and key.startswith("classification.") else pa.float64() if key == "classification.seconds" else pa.string()) for key in fields])
     try:
         with pq.ParquetWriter(path, schema, compression="zstd") as writer:
             batch = []

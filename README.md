@@ -1,8 +1,17 @@
-# TextLab 0.3.0
+# TextLab 0.4.0
 
 A self-hosted Python workbench for LLM text classification, multi-task prediction and gold-standard evaluation. FastAPI serves an English web interface; a separate worker sends bounded parallel requests to Ollama or an OpenAI-compatible API such as vLLM. SQLite WAL stores tasks, datasets, job snapshots and results.
 
-## New in this release
+## New in 0.4
+
+- Inspect and download job error logs while jobs run, including recovered retry failures and raw attempt outputs.
+- Set an optional task default label for failed LLM classifications; fallback labels remain explicitly flagged and counted.
+- Enter semicolon-separated seeds for evaluation and prediction. Each seed creates an independent run.
+- Compare repeated evaluations with means, sample standard deviations and error bars; retain individual runs. Prediction exports identify every task/seed run.
+
+See [REPETITIONS.md](REPETITIONS.md) for workflow, statistical conventions and API examples.
+
+## Core features
 
 - English navigation, forms, feedback, reports and charts. Existing user-authored tasks and texts retain their original language.
 - Delete LLM connections, original CSV files, datasets, gold registrations, evaluations and prediction batches. Dependency checks block deletion of active runs; cascade deletion requires confirmation.
@@ -109,7 +118,7 @@ TEXTLAB_DATA/
 
 Files become downloadable after every task run has completed or cancellation has finished and all exports have been generated. An interrupted export is rebuilt after worker restart; failed exports have a **Retry exports** control. Files remain on disk until the batch or parent dataset is deleted. Generating all formats uses additional disk space and occupies the single worker until finished.
 
-Each export contains **one row per input record and task**, including failed and unprocessed rows. `job_id`, `task_id`, task name and `row_no` identify the result. Original columns, labels, rationale, evidence, returned thinking, raw response, attempt logs, errors, token counts and per-text duration are retained.
+Each export contains **one row per input record, task and seed run**, including failed and unprocessed rows. `job_id`, `task_id`, task name and `row_no` identify the result. Original columns, labels, rationale, evidence, returned thinking, raw response, attempt logs, errors, token counts and per-text duration are retained.
 
 | Format | Representation |
 |---|---|
@@ -119,7 +128,7 @@ Each export contains **one row per input record and task**, including failed and
 | Parquet | Zstandard compression; flat columns matching CSV, nested values encoded as JSON strings |
 | Manifest | Configuration snapshots, task revisions, job identities and runtime measurements |
 
-CSV prefixes potentially executable spreadsheet formula strings with an apostrophe. JSON/JSONL and Parquet retain raw strings. Input IDs such as `001` remain strings. Missing/failed predictions use null labels; valid empty multi-label predictions use `[]`.
+CSV prefixes potentially executable spreadsheet formula strings with an apostrophe. JSON/JSONL and Parquet retain raw strings. Input IDs such as `001` remain strings. Unassigned failures use null labels; fallback assignments retain the default label and a fallback flag; valid empty multi-label predictions use `[]`.
 
 Individual classification-job exports retain the previous behavior: completed result rows only, downloaded on demand as CSV/JSONL/Parquet. Prediction exports additionally include unprocessed rows and persist all formats on disk.
 

@@ -106,7 +106,15 @@ def init():
                 db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
         if "active_seconds" not in old_jobs:
             db.execute("UPDATE evaluations SET report_json=NULL,report_error=NULL")
-        db.execute("PRAGMA user_version=3")
+        result_columns = {r[1] for r in db.execute("PRAGMA table_info(results)")}
+        if 'error_count' not in result_columns:
+            db.execute("ALTER TABLE results ADD COLUMN error_count INTEGER NOT NULL DEFAULT 0")
+            db.execute("UPDATE results SET error_count=MAX(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END, (SELECT COUNT(*) FROM json_each(results.attempt_outputs) WHERE json_extract(value,'$.error') IS NOT NULL))")
+            db.execute("UPDATE evaluations SET report_json=NULL,report_error=NULL")
+        db.execute("CREATE INDEX IF NOT EXISTS result_errors ON results(job_id,row_no) WHERE error_count>0")
+        if 'fallback_count' not in old_jobs:
+            db.execute("ALTER TABLE jobs ADD COLUMN fallback_count INTEGER NOT NULL DEFAULT 0")
+        db.execute("PRAGMA user_version=4")
 
 
 def heartbeat():

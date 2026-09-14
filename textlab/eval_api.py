@@ -100,15 +100,20 @@ def create_evaluation(spec: NewEvaluation):
         id, now = uid(),time.time()
         db.execute('INSERT INTO evaluations(id,name,gold_id,task_snapshot,created) VALUES(?,?,?,?,?)',(id,spec.name,spec.gold_id,dumps({'task':task.model_dump(),'task_id':task_row['id'],'task_revision':task_row['revision']}),now))
         jobs = []
-        for ordinal,variant in enumerate(spec.variants):
-            try:
-                snapshot = snapshot_for(task_row,profiles[variant.profile_id],variant.query,mapping['text_column'])
-            except ValueError as exc:
-                raise HTTPException(422,str(exc)) from exc
-            snapshot.update(evaluation_id=id,gold_id=spec.gold_id,variant=variant.name)
-            job_id = enqueue(db,f'{spec.name} / {variant.name}',dataset,snapshot,now+ordinal*.000001)
-            db.execute('INSERT INTO evaluation_runs VALUES(?,?,?,?)',(id,job_id,variant.name,ordinal))
-            jobs.append(job_id)
+        ordinal = 0
+        for variant in spec.variants:
+            seeds = variant.seeds or spec.seeds or [variant.query.seed]
+            for seed in seeds:
+                query = variant.query.model_copy(update={'seed': seed})
+                try:
+                    snapshot = snapshot_for(task_row,profiles[variant.profile_id],query,mapping['text_column'])
+                except ValueError as exc:
+                    raise HTTPException(422,str(exc)) from exc
+                run_name = variant.name + (f' · seed={seed}' if len(seeds)>1 else '')
+                snapshot.update(evaluation_id=id,gold_id=spec.gold_id,variant=run_name,experiment_name=variant.name)
+                job_id = enqueue(db,f'{spec.name} / {run_name}',dataset,snapshot,now+ordinal*.000001)
+                db.execute('INSERT INTO evaluation_runs VALUES(?,?,?,?)',(id,job_id,run_name,ordinal))
+                jobs.append(job_id); ordinal += 1
     return {'id':id,'job_ids':jobs}
 
 
@@ -190,7 +195,7 @@ def report(id: str,scope: Literal['valid','common']='common',format: Literal['js
     from .reports import table_csv, html_report, report_zip
     headers = {'Content-Disposition':f'attachment; filename="evaluation-{id}-{scope}.{format if format!="class_csv" else "classes.csv"}"'}
     if format == 'json':
-        return JSONResponse({**{k:v for k,v in result.items() if k!='scopes'},'scope':scope,'runs':result['scopes'][scope]['runs']},headers=headers)
+        return JSONResponse({**{k:v for k,v in result.items() if k!='scopes'},'scope':scope,'runs':result['scopes'][scope]['runs'],'groups':result['scopes'][scope].get('groups',[])},headers=headers)
     if format in ('csv','class_csv'):
         return Response(table_csv(result,scope,classes=format=='class_csv'),media_type='text/csv; charset=utf-8',headers=headers)
     if format == 'html':
@@ -214,7 +219,7 @@ def prediction_rows(id, job_id=None, after=0, limit=None):
         evaluation = fetch(db,'evaluations',id)
         gold = fetch(db,'gold_sets',evaluation['gold_id'])
         spec = json.loads(gold['spec'])
-        runs = [dict(r) for r in db.execute('SELECT * FROM evaluation_runs WHERE evaluation_id=? ORDER BY ordinal',(id,))]
+        runs = [dict(r) for r in db.execute('SELECT r.*,j.snapshot FROM evaluation_runs r JOIN jobs j ON j.id=r.job_id WHERE evaluation_id=? ORDER BY ordinal',(id,))]
     if job_id is not None:
         runs = [r for r in runs if r['job_id']==job_id]
         if not runs:
@@ -238,13 +243,13 @@ def prediction_rows(id, job_id=None, after=0, limit=None):
                 result = dict(row)
                 result['gold_labels'] = json.loads(result['gold_labels'])
                 raw_labels = result.pop('labels')
-                result['predicted_labels'] = json.loads(raw_labels) if result['status']=='ok' else None
+                result['predicted_labels'] = json.loads(raw_labels) if result['status'] in ('ok','fallback') else None
                 result['text'] = json.loads(result.pop('data'))[spec['text_column']]
                 for field in ('evidence','attempt_outputs'):
                     result[field] = json.loads(result[field] or '[]')
                 result['status'] = result['status'] or 'not_processed'
                 result['exact_match'] = set(result['gold_labels']) == set(result['predicted_labels']) if result['predicted_labels'] is not None else False
-                result.update(variant=run['name'],job_id=run['job_id'])
+                result.update(variant=run['name'],job_id=run['job_id'],seed=json.loads(run['snapshot'])['query'].get('seed'),fallback_used=result['status']=='fallback')
                 yield result
             cursor = rows[-1]['row_no']
             emitted += len(rows)

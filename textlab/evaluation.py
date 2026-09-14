@@ -12,6 +12,13 @@ from .runtime import runtime_metrics
 TERMINAL = ('completed', 'completed_with_errors', 'cancelled')
 POLICIES = {'valid': 'Only valid predictions per variant; the document subset may differ between variants.', 'common': 'The identical intersection of documents with valid predictions from every variant.', 'failures': 'Failed and unprocessed documents are not label predictions. Coverage is the fraction with valid predictions; accuracy_all counts failures and unprocessed documents as incorrect.', 'averages': 'Macro weights every task class equally, including classes with no gold support. Weighted uses gold support in the selected subset. Micro pools TP/FP/FN.', 'undefined': 'Precision/recall/F1 with a zero denominator = 0. Undefined kappa = null. MCC with a zero denominator = 0 (scikit-learn convention). No valid documents = null metrics.', 'multilabel': 'Accuracy is exact-match/subset accuracy. Kappa and MCC are binary per class; their macro means are not global multiclass coefficients.', 'evidence': 'Metrics score labels only. Validation errors in optional rationale/evidence fields invalidate the whole response.', 'runtime': 'Runtime covers the entire variant, independent of scoring scope. Active seconds include requests, retries and batch processing, excluding queue time and pauses. Elapsed seconds include pauses after first start. Throughput is processed documents divided by active seconds. Mean document latency includes retries and overlaps under concurrency. Legacy or interrupted timing is unknown. Model load and cache effects may affect comparisons.'}
 
+POLICIES.update(
+    valid='All assigned predictions per run, including flagged fallback labels; document subsets may differ.',
+    common='Identical intersection of documents with assigned predictions (model or fallback) in every completed, non-cancelled run.',
+    failures='Coverage measures valid model responses only; output_coverage also includes fallback assignments. Fallback labels are scored as assigned output. Failed counts include fallbacks; fallback_n reports that subset. Unprocessed records have no fallback.',
+    repetitions='Group identical task/model/parameter configurations, varying only seed. Compute each metric per run, then mean and sample standard deviation (ddof=1). Never pool predictions. Undefined values are omitted per metric; sample_n gives its denominator. SD is null with fewer than two defined runs. Cancelled or unfinished runs are excluded from aggregates and counted explicitly. Error bars show one SD, not a confidence interval.'
+)
+
 
 def gold_labels(value, spec):
     value = value.strip()
@@ -105,27 +112,31 @@ def build_report(evaluation_id):
         runs = [dict(r) for r in db.execute('SELECT j.*,r.name variant_name,r.ordinal FROM evaluation_runs r JOIN jobs j ON j.id=r.job_id WHERE r.evaluation_id=? ORDER BY r.ordinal',(evaluation_id,))]
     if not runs or any(r['status'] not in TERMINAL for r in runs):
         raise ValueError('Evaluation is not yet finished')
-    common = set(gold)
-    for run in runs:
+    eligible = [r for r in runs if r['status'] != 'cancelled']
+    common = set(gold) if eligible else set()
+    for run in eligible:
         with connect() as db:
-            common.intersection_update(r[0] for r in db.execute("SELECT row_no FROM results WHERE job_id=? AND status='ok'",(run['id'],)))
+            common.intersection_update(r[0] for r in db.execute("SELECT row_no FROM results WHERE job_id=? AND status IN ('ok','fallback')",(run['id'],)))
     task_snapshot = json.loads(evaluation['task_snapshot'])
     task = task_snapshot['task']
     labels = [c['label'] for c in task['categories']]
-    report = {'schema_version':1,'framework_version':'0.3.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
+    report = {'schema_version':2,'framework_version':'0.4.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
               'task_snapshot':task_snapshot,'gold':{'id':gold_set['id'],'total':len(gold),'spec':json.loads(gold_set['spec']),'label_counts':json.loads(gold_set['label_counts'])},
               'labels':labels,'mode':task['mode'],'policies':POLICIES,'common_n':len(common),'scopes':{'valid':{'runs':[]},'common':{'runs':[]}}}
     for run in runs:
         with connect() as db:
-            predictions = {r['row_no']:json.loads(r['labels']) for r in db.execute("SELECT row_no,labels FROM results WHERE job_id=? AND status='ok' ORDER BY row_no",(run['id'],))}
+            predictions = {r['row_no']:json.loads(r['labels']) for r in db.execute("SELECT row_no,labels FROM results WHERE job_id=? AND status IN ('ok','fallback') ORDER BY row_no",(run['id'],))}
         exact_all = sum(set(prediction)==set(gold[row]) for row,prediction in predictions.items())
         item = {'job_id':run['id'],'variant':run['variant_name'],'status':run['status'],'snapshot':json.loads(run['snapshot']),
-                'gold_n':len(gold),'valid_n':len(predictions),'failed_n':run['failed'],'unprocessed_n':len(gold)-run['done'],
-                'coverage':len(predictions)/len(gold),'accuracy_all':exact_all/len(gold),
+                'gold_n':len(gold),'valid_n':len(predictions)-run['fallback_count'],'prediction_n':len(predictions),'fallback_n':run['fallback_count'],'failed_n':run['failed'],'unprocessed_n':len(gold)-run['done'],
+                'coverage':(len(predictions)-run['fallback_count'])/len(gold),'output_coverage':len(predictions)/len(gold),'accuracy_all':exact_all/len(gold),
                 'runtime':runtime_metrics(run),'requests':run['requests'],'prompt_tokens':run['prompt_tokens'],'completion_tokens':run['completion_tokens']}
-        for scope, rows in (('valid',list(predictions)),('common',sorted(common))):
+        for scope, rows in (('valid',list(predictions)),('common',sorted(common.intersection(predictions)))):
             result = score([gold[row] for row in rows],[predictions[row] for row in rows],labels,task['mode'])
             report['scopes'][scope]['runs'].append({**item,**result})
+    from .repetitions import aggregate_runs
+    for scope in report['scopes'].values():
+        scope['groups']=aggregate_runs(scope['runs'])
     return report
 
 

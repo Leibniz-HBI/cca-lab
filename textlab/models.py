@@ -36,6 +36,7 @@ class Task(StrictModel):
     rationale: bool = False
     evidence: bool = False
     thinking: ThinkingLevel = "default"
+    default_label: str | None = None
 
     @model_validator(mode="after")
     def check(self):
@@ -44,6 +45,8 @@ class Task(StrictModel):
             raise ValueError("Labels must be unique")
         if self.mode == "single" and self.allow_empty:
             raise ValueError("Empty labels are only allowed for multi-label tasks; otherwise define a fallback category")
+        if self.default_label is not None and self.default_label not in labels:
+            raise ValueError("Default label must be one of the task categories")
         for ex in self.examples:
             validate_labels(ex.labels, self)
         return self
@@ -92,7 +95,7 @@ class Query(StrictModel):
     temperature: float = Field(default=0, ge=0, le=2)
     top_p: float = Field(default=1, gt=0, le=1)
     max_tokens: int = Field(default=256, ge=16, le=32768)
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=-(2**63), le=2**63-1)
     structured_output: Literal["json_schema", "json_object", "none"] = "json_schema"
     extra_body: dict = Field(default_factory=dict)
     examples_per_category: int = Field(default=3, ge=0, le=100)
@@ -139,13 +142,35 @@ class GoldSet(StrictModel):
         return self
 
 
-class Variant(StrictModel):
+def parse_seeds(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = [int(x.strip()) for x in value.split(';')]
+        except ValueError as exc:
+            raise ValueError("Seeds must be semicolon-separated integers") from exc
+    if not isinstance(value, list) or not 1 <= len(value) <= 100:
+        raise ValueError("Supply 1 to 100 seeds")
+    if any(type(x) is not int or not -(2**63) <= x < 2**63 for x in value):
+        raise ValueError("Seeds must be signed 64-bit integers")
+    if len(set(value)) != len(value):
+        raise ValueError("Seeds must be unique")
+    return value
+
+
+class RepeatedRuns(StrictModel):
+    seeds: list[int] | None = None
+    _parse_seeds = field_validator('seeds', mode='before')(parse_seeds)
+
+
+class Variant(RepeatedRuns):
     name: str = Field(min_length=1, max_length=200)
     profile_id: str
     query: Query
 
 
-class NewEvaluation(StrictModel):
+class NewEvaluation(RepeatedRuns):
     name: str = Field(min_length=1, max_length=200)
     gold_id: str
     task_id: str
@@ -155,10 +180,12 @@ class NewEvaluation(StrictModel):
     def unique_names(self):
         if len({v.name for v in self.variants}) != len(self.variants):
             raise ValueError("Variant names must be unique")
+        if sum(len(v.seeds or self.seeds or [v.query.seed]) for v in self.variants) > 500:
+            raise ValueError("Maximum 500 total evaluation runs")
         return self
 
 
-class NewPrediction(StrictModel):
+class NewPrediction(RepeatedRuns):
     name: str = Field(min_length=1, max_length=200)
     dataset_id: str
     task_ids: list[str] = Field(min_length=1, max_length=50)
@@ -172,3 +199,5 @@ class NewPrediction(StrictModel):
         if len(values) != len(set(values)):
             raise ValueError("Choose each task only once")
         return values
+
+

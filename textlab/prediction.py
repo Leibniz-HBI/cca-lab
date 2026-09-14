@@ -33,18 +33,25 @@ def create_prediction(spec: NewPrediction):
             raise HTTPException(422,'Unknown text column')
         profile=fetch(db,'profiles',spec.profile_id)
         tasks=[fetch(db,'tasks',id) for id in spec.task_ids]
+        seeds = spec.seeds or [spec.query.seed]
+        if len(tasks)*len(seeds)>500:
+            raise HTTPException(422,'Maximum 500 total prediction runs')
         id,now=uid(),time.time()
         db.execute('INSERT INTO predictions(id,name,dataset_id,created) VALUES(?,?,?,?)',(id,spec.name,spec.dataset_id,now))
         jobs=[]
-        for index,task in enumerate(tasks):
-            try:
-                snapshot=snapshot_for(task,profile,spec.query,spec.text_column)
-            except ValueError as exc:
-                raise HTTPException(422,str(exc)) from exc
-            snapshot['prediction_id']=id
-            name=snapshot['task']['name']
-            job=enqueue(db,f'{spec.name} / {name}',dataset,snapshot,now+index*.000001)
-            db.execute('INSERT INTO prediction_runs VALUES(?,?,?,?)',(id,job,name,index));jobs.append(job)
+        index=0
+        for task in tasks:
+            for seed in seeds:
+                query=spec.query.model_copy(update={'seed':seed})
+                try:
+                    snapshot=snapshot_for(task,profile,query,spec.text_column)
+                except ValueError as exc:
+                    raise HTTPException(422,str(exc)) from exc
+                snapshot['prediction_id']=id
+                name=snapshot['task']['name']
+                snapshot['experiment_name']=name
+                job=enqueue(db,f'{spec.name} / {name} · seed={seed}',dataset,snapshot,now+index*.000001)
+                db.execute('INSERT INTO prediction_runs VALUES(?,?,?,?)',(id,job,name,index));jobs.append(job);index+=1
     return {'id':id,'job_ids':jobs}
 
 
@@ -59,7 +66,8 @@ def info(db,prediction):
         status=('cancelled' if all(s=='cancelled' for s in states) else 'completed_with_errors' if any(s!='completed' for s in states) else 'completed') if p['artifact_status']=='ready' else 'exporting'
     else:
         status=next((s for s in ('running','cancelling','pausing','queued','paused') if s in states),'queued')
-    p.update(runs=runs,status=status,total=sum(r['total'] for r in runs),done=sum(r['done'] for r in runs),failed=sum(r['failed'] for r in runs),artifacts=[dict(r) for r in db.execute('SELECT format,bytes FROM prediction_artifacts WHERE prediction_id=? ORDER BY format',(p['id'],))])
+    from .repetitions import aggregate_runs
+    p.update(groups=aggregate_runs(runs),runs=runs,status=status,total=sum(r['total'] for r in runs),done=sum(r['done'] for r in runs),failed=sum(r['failed'] for r in runs),artifacts=[dict(r) for r in db.execute('SELECT format,bytes FROM prediction_artifacts WHERE prediction_id=? ORDER BY format',(p['id'],))])
     return p
 
 
@@ -112,9 +120,9 @@ def prediction_rows(prediction):
             if not rows:break
             for row in rows:
                 out=dict(row);out['source']=json.loads(out.pop('data'))
-                out['labels']=json.loads(out['labels']) if out['status']=='ok' else None
+                out['labels']=json.loads(out['labels']) if out['status'] in ('ok','fallback') else None
                 out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
-                out.update(status=out['status'] or 'not_processed',task_id=snapshot['task_id'],task_name=run['task_name'],job_id=run['id'])
+                out.update(seed=snapshot['query'].get('seed'),fallback_used=out['status']=='fallback',status=out['status'] or 'not_processed',task_id=snapshot['task_id'],task_name=run['task_name'],job_id=run['id'])
                 yield out
             after=rows[-1]['row_no']
 
@@ -132,10 +140,10 @@ def build_artifacts(prediction):
         dataset=fetch(db,'datasets',prediction['dataset_id'])
         manifest=info(db,prediction)
     columns=json.loads(dataset['columns_json'])
-    meta=['job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
+    meta=['seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
     fields=['source.'+c for c in columns]+['prediction.'+c for c in meta]
-    integer={'row_no','attempts','prompt_tokens','completion_tokens'}
-    schema=pa.schema([(f,pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f=='prediction.seconds' else pa.string()) for f in fields])
+    integer={'seed','row_no','attempts','prompt_tokens','completion_tokens'}
+    schema=pa.schema([(f,pa.bool_() if f=='prediction.fallback_used' else pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f=='prediction.seconds' else pa.string()) for f in fields])
     with ExitStack() as stack:
         csvfile=stack.enter_context((staging/'results.csv').open('w',encoding='utf-8-sig',newline=''))
         jsonfile=stack.enter_context((staging/'results.json').open('w',encoding='utf-8'))
@@ -151,7 +159,7 @@ def build_artifacts(prediction):
             if len(batch)==500:parquet.write_table(pa.Table.from_pylist(batch,schema=schema));batch.clear()
         if batch:parquet.write_table(pa.Table.from_pylist(batch,schema=schema))
         jsonfile.write(']\n')
-    manifest.update(artifact_status='ready',framework_version='0.3.0',layout='one row per source record and task',created_at=time.time())
+    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.4.0',layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
     os.replace(staging,final)

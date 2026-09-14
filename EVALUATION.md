@@ -1,4 +1,6 @@
-# Evaluation in TextLab 0.3.0
+# Evaluation in TextLab 0.4.0
+
+Version 0.4 adds repeated seeds, grouped mean/SD tables, error-bar charts and explicitly scored fallback labels. [REPETITIONS.md](REPETITIONS.md) defines the updated scoring and repetition conventions.
 
 ## Workflow
 
@@ -13,7 +15,7 @@
 
 Gold/task modes and label cardinalities are validated before any jobs are created. Gold labels are not added to prompts. Keep manually authored few-shot examples separate from evaluation examples to avoid leakage.
 
-Gold registrations preserve normalized labels and column mappings. Register again to change a mapping. Default maximum: 50,000 gold rows (`TEXTLAB_MAX_EVAL_ROWS`) and 50 configurations per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
+Gold registrations preserve normalized labels and column mappings. Register again to change a mapping. Default maximum: 50,000 gold rows (`TEXTLAB_MAX_EVAL_ROWS`) and 50 base configurations and 500 expanded runs per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
 
 ## Quality metrics
 
@@ -21,10 +23,10 @@ Two scoring scopes are available:
 
 | Scope | Documents scored |
 |---|---|
-| Common valid documents (default) | Identical intersection of valid predictions from all variants |
-| Valid documents per variant | Each variant's own valid subset, which may differ in difficulty |
+| Common valid documents (default) | Identical intersection of assigned predictions from completed, non-cancelled runs |
+| Valid documents per variant | Each variant's own assigned subset (including fallbacks), which may differ in difficulty |
 
-Coverage always uses all gold documents: valid predictions / total gold documents. Accuracy (all) counts failed or unprocessed records as incorrect. Failed multi-label predictions are not treated as empty label sets.
+Coverage always uses all gold documents: valid predictions / total gold documents. Accuracy (all) scores fallback labels as assigned output; unassigned or unprocessed records count as incorrect. Failed multi-label predictions are not treated as empty label sets.
 
 | Metric | Single-label | Multi-label |
 |---|---|---|

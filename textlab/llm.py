@@ -113,7 +113,7 @@ def classify(snapshot, text, client):
     schema = output_schema(task)
     for attempt in range(query.retries + 1):
         result["attempts"] += 1
-        output = {"attempt": attempt + 1, "content": None, "thinking": None, "error": None}
+        output = {"attempt": attempt + 1, "started_at": time.time(), "content": None, "thinking": None, "error": None}
         result["attempt_outputs"].append(output)
         try:
             if profile.provider == "mock":
@@ -186,5 +186,7 @@ def classify(snapshot, text, client):
             output["error"] = result["error"]
             if attempt < query.retries:
                 time.sleep(min(2 ** attempt, 30))
+    if result['status'] == 'failed' and task.default_label is not None:
+        result.update(labels=[task.default_label], status='fallback', rationale=None, evidence=[])
     result["seconds"] = round(time.monotonic() - started, 4)
     return result

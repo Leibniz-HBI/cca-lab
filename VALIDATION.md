@@ -1,3 +1,14 @@
+# TextLab 0.4.0 validation
+
+- 58 automated tests passed on Python 3.12: all previous tests plus fallback/retry preservation, invalid fallback validation, live error pagination, recovered retry filtering, streaming error export, error-index migration, multi-seed evaluation/prediction expansion, seed validation/run limits, per-run means/sample SD, null denominators and cancellation-safe common scoring.
+- Seeded prediction exports verified in JSON and Parquet with 2 tasks × 3 seeds × 2 records, including seed identities and aggregate manifest groups. Job Parquet exports verify fallback flags.
+- Grouped CSV values were compared with known per-run accuracy values, and plotted overview/class charts were rendered. Cancelled runs are excluded from aggregates without emptying the scoring subset of completed runs.
+- Playwright/Chromium exercised task fallback settings, prediction/evaluation seed entry, flagged fallback labels, error-log viewing, mean/SD tables, error-bar charts and existing deletion/download flows. A local simulated HTTP model endpoint provided successful responses for one seed and invalid labels for another. Screenshots are in `docs/`.
+- No real model/GPU inference was tested. Seed determinism, backend-specific seed support and real-world classification quality remain dependent on the configured model server.
+- The same three non-failing dependency warnings remain (Starlette/httpx deprecations and a scikit-learn single-class warning). Historical import benchmarks below were not rerun as part of this release.
+
+## Earlier release validation
+
 # TextLab 0.3.0 validation
 
 - 44 automated tests passed with Python 3.12. This includes the existing classification/evaluation suite and new prediction, deletion, thinking-control and runtime tests.
