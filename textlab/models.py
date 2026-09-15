@@ -34,6 +34,8 @@ class Task(StrictModel):
     ambiguity_rule: str = "Choose the best supported category. Do not infer unsupported claims."
     allow_empty: bool = False
     rationale: bool = False
+    alternatives: bool = False
+    confidence: bool = False
     evidence: bool = False
     thinking: ThinkingLevel = "default"
     default_label: str | None = None

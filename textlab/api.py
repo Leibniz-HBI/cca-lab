@@ -25,7 +25,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="TextLab", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.6.0", lifespan=lifespan)
 
 
 def get(db, table, id):
@@ -266,7 +266,7 @@ def result_row(row):
     row = dict(row)
     row["fallback_used"] = row["status"] == "fallback"
     row["labels"] = json.loads(row["labels"])
-    for field in ("evidence", "attempt_outputs"):
+    for field in ("evidence", "attempt_outputs", "alternative_interpretations"):
         row[field] = json.loads(row[field])
     row["source"] = json.loads(row.pop("data"))
     return row
@@ -291,7 +291,7 @@ def safe_cell(value):
     return value
 
 
-EXPORT_FIELDS = ["fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
+EXPORT_FIELDS = ["self_reported_confidence", "alternative_interpretations", "fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
 
 
 @app.get("/api/jobs/{id}/export")
@@ -318,7 +318,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
     def flat_rows():
         for row in export_rows(id, job["dataset_id"]):
             flat = {"source." + key: row["source"].get(key, "") for key in columns}
-            flat.update({"classification." + key: dumps(row[key]) if key in ("labels", "evidence", "attempt_outputs") else row[key] for key in EXPORT_FIELDS})
+            flat.update({"classification." + key: dumps(row[key]) if key in ("labels", "evidence", "attempt_outputs", "alternative_interpretations") else row[key] for key in EXPORT_FIELDS})
             yield flat
 
     fields = ["source." + c for c in columns] + ["classification." + c for c in EXPORT_FIELDS]
@@ -345,7 +345,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
     fd, path = tempfile.mkstemp(suffix=".parquet", dir=root())
     os.close(fd)
     # Explicit schema also handles empty and all-null first row groups.
-    schema = pa.schema([(key, pa.bool_() if key == "classification.fallback_used" else pa.int64() if key.split(".")[-1] in ("error_count", "row_no", "attempts", "prompt_tokens", "completion_tokens") and key.startswith("classification.") else pa.float64() if key == "classification.seconds" else pa.string()) for key in fields])
+    schema = pa.schema([(key, pa.bool_() if key == "classification.fallback_used" else pa.int64() if key.split(".")[-1] in ("error_count", "row_no", "attempts", "prompt_tokens", "completion_tokens") and key.startswith("classification.") else pa.float64() if key in ("classification.seconds", "classification.self_reported_confidence") else pa.string()) for key in fields])
     try:
         with pq.ParquetWriter(path, schema, compression="zstd") as writer:
             batch = []
@@ -368,5 +368,8 @@ from .prediction import router as prediction_router
 from .removal import router as removal_router
 app.include_router(prediction_router)
 app.include_router(removal_router)
+
+from .uncertainty import router as uncertainty_router
+app.include_router(uncertainty_router)
 
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="frontend")

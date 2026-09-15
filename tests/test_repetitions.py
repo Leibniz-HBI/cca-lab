@@ -90,7 +90,7 @@ def test_live_error_log_pagination_recovered_and_migration(client,monkeypatch):
         db.execute('DROP INDEX result_errors');db.execute('ALTER TABLE results DROP COLUMN error_count')
     init();init()
     assert client.get(f'/api/jobs/{job}/errors').json()['total']==2
-    with connect() as db:assert db.execute('PRAGMA user_version').fetchone()[0]==4
+    with connect() as db:assert db.execute('PRAGMA user_version').fetchone()[0]==5
     parquet=pq.read_table(io.BytesIO(client.get(f'/api/jobs/{job}/export?format=parquet').content))
     assert parquet['classification.fallback_used'].to_pylist()==[True,False]
 

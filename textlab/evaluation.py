@@ -120,7 +120,7 @@ def build_report(evaluation_id):
     task_snapshot = json.loads(evaluation['task_snapshot'])
     task = task_snapshot['task']
     labels = [c['label'] for c in task['categories']]
-    report = {'schema_version':2,'framework_version':'0.5.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
+    report = {'schema_version':2,'framework_version':'0.6.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
               'task_snapshot':task_snapshot,'gold':{'id':gold_set['id'],'total':len(gold),'spec':json.loads(gold_set['spec']),'label_counts':json.loads(gold_set['label_counts'])},
               'labels':labels,'mode':task['mode'],'policies':POLICIES,'common_n':len(common),'scopes':{'valid':{'runs':[]},'common':{'runs':[]}}}
     for run in runs:
@@ -133,10 +133,16 @@ def build_report(evaluation_id):
                 'runtime':runtime_metrics(run),'requests':run['requests'],'prompt_tokens':run['prompt_tokens'],'completion_tokens':run['completion_tokens']}
         for scope, rows in (('valid',list(predictions)),('common',sorted(common.intersection(predictions)))):
             result = score([gold[row] for row in rows],[predictions[row] for row in rows],labels,task['mode'])
-            report['scopes'][scope]['runs'].append({**item,**result})
+            from .uncertainty import run_confidence
+            report['scopes'][scope]['runs'].append({**item,**result,'confidence':run_confidence(run['id'],gold,set(rows))})
+    report['policies']['confidence']='Uncalibrated self-reported probability of exact label-set agreement with gold; not codebook fit. Confidence excludes failed, fallback, missing-score and (from groups) cancelled responses. Brier and 10-bin ECE are lower-is-better; error AUROC/AP are undefined with only one outcome. Group metrics and curves average runs with sample SD; empty bins are omitted per run. Risk accepts whole confidence ties; coverage is conditional on valid scored outputs, with 20 target levels and actual mean achieved coverage plotted. No calibration model is fitted.'
+    report['policies']['agreement']='Per-document seed agreement groups identical task, model and query settings except seed. Counts only successful primary label sets from completed runs. Cancelled runs and duplicate seeds are excluded; fallback and failed outputs never count as votes. Fewer than two valid distinct-seed outputs: agreement and entropy are null. All tied modal sets are retained. Frequencies are not calibrated correctness probabilities.'
     from .repetitions import aggregate_runs
     for scope in report['scopes'].values():
         scope['groups']=aggregate_runs(scope['runs'])
+        from .uncertainty import group_confidence
+        for group in scope['groups']:
+            group['confidence']=group_confidence([r for r in scope['runs'] if r['job_id'] in group['job_ids']])
     return report
 
 

@@ -19,6 +19,15 @@ def output_schema(task):
         properties["evidence"] = {"type": "array", "items": {"type": "object", "properties": {
             "label": {"type": "string", "enum": [c.label for c in task.categories]},
             "quote": {"type": "string", "minLength": 1}}, "required": ["label", "quote"], "additionalProperties": False}}
+    if task.confidence:
+        properties["self_reported_confidence"] = {"type": "number", "minimum": 0, "maximum": 1}
+    if task.alternatives:
+        properties["alternative_interpretations"] = {"type": "array", "maxItems": 5, "items": {
+            "type": "object", "properties": {"labels": properties["labels"],
+            "justification": {"type": "string", "minLength": 1},
+            "supporting_quotes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "boundary_note": {"type": "string", "minLength": 1}},
+            "required": ["labels", "justification", "supporting_quotes", "boundary_note"], "additionalProperties": False}}
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
 
 
@@ -32,11 +41,26 @@ def messages(task, query, text):
         system += ("\nEvidence: provide only exact, contiguous quotes from the input text. "
                    "Each quote must belong to a predicted label. Do not invent or normalize text spans. "
                    "When a decision is based on an absence of evidence, evidence may be empty.")
+    if task.alternatives:
+        system += ("\nAssess plausible labels symmetrically against inclusion, exclusion and priority rules. "
+                   "The labels field is the primary decision. alternative_interpretations contains up to five "
+                   "genuinely plausible competing label sets under the SAME codebook, not labels that apply together. "
+                   "Use [] for unambiguous cases. Each alternative needs a concise justification, exact contiguous "
+                   "supporting_quotes (may be [] when evidence is absent), and a boundary_note explaining the "
+                   "material counter-evidence or missing context. Do not invent objections or duplicate the primary set.")
+    if task.confidence:
+        system += ("\nself_reported_confidence is your estimated probability (0 to 1) that the entire primary label "
+                   "set agrees with a competent adjudicator applying this codebook. Consider missing context and "
+                   "material counter-evidence. This is an uncalibrated self-report, not a codebook prototypicality score.")
     result = [{"role": "system", "content": system}]
     examples = [(text, [c.label], "Example from the codebook.") for c in task.categories for text in c.examples[:query.examples_per_category]]
     examples += [(ex.text, ex.labels, ex.rationale) for ex in task.examples]
     for ex_text, labels, rationale in examples:
         response = {"labels": labels}
+        if task.alternatives:
+            response["alternative_interpretations"] = []
+        if task.confidence:
+            response["self_reported_confidence"] = 1.0  # Author-provided example labels, not empirical calibration.
         if task.rationale:
             response["rationale"] = rationale
         if task.evidence:
@@ -48,7 +72,7 @@ def messages(task, query, text):
 
 def parse_result(raw, task, text=None):
     obj = json.loads(raw)
-    expected = {"labels"} | ({"rationale"} if task.rationale else set()) | ({"evidence"} if task.evidence else set())
+    expected = ({"alternative_interpretations"} if task.alternatives else set()) | ({"self_reported_confidence"} if task.confidence else set()) | {"labels"} | ({"rationale"} if task.rationale else set()) | ({"evidence"} if task.evidence else set())
     if not isinstance(obj, dict) or set(obj) != expected:
         raise ValueError("JSON fields do not match the output schema")
     validate_labels(obj["labels"], task)
@@ -71,6 +95,30 @@ def parse_result(raw, task, text=None):
                 raise ValueError("Evidence quote is not an exact substring of the input text")
             evidence["start"] = text.index(evidence["quote"])
             evidence["end"] = evidence["start"] + len(evidence["quote"])
+    if task.confidence:
+        value = obj["self_reported_confidence"]
+        if type(value) not in (int, float) or not 0 <= value <= 1:
+            raise ValueError("self_reported_confidence must be a finite number from 0 to 1")
+    if task.alternatives:
+        alternatives = obj["alternative_interpretations"]
+        if not isinstance(alternatives, list) or len(alternatives) > 5:
+            raise ValueError("Expected at most five alternative interpretations")
+        seen = {tuple(sorted(obj["labels"]))}
+        for alt in alternatives:
+            if not isinstance(alt, dict) or set(alt) != {"labels", "justification", "supporting_quotes", "boundary_note"}:
+                raise ValueError("Invalid alternative interpretation fields")
+            validate_labels(alt["labels"], task)
+            key = tuple(sorted(alt["labels"]))
+            if key in seen:
+                raise ValueError("Alternative label sets must be distinct from each other and the primary")
+            seen.add(key)
+            if any(not isinstance(alt[k], str) or not alt[k].strip() for k in ('justification', 'boundary_note')):
+                raise ValueError("Alternatives need justification and boundary note")
+            quotes = alt['supporting_quotes']
+            if not isinstance(quotes, list) or any(not isinstance(q, str) or not q.strip() or text is None or q not in text for q in quotes):
+                raise ValueError("Alternative quotes must be exact substrings of the input")
+            if len(set(quotes)) != len(quotes):
+                raise ValueError("Duplicate alternative quotes")
     return obj
 
 
@@ -122,6 +170,10 @@ def classify(snapshot, text, client):
                     obj["rationale"] = "Demo model: always the first category; no semantic classification."
                 if task.evidence:
                     obj["evidence"] = [{"label": task.categories[0].label, "quote": text}]
+                if task.confidence:
+                    obj["self_reported_confidence"] = 0.5
+                if task.alternatives:
+                    obj["alternative_interpretations"] = []
                 raw = dumps(obj)
             else:
                 body = {"model": query.model, "messages": prompt, "stream": False, **thinking_body(profile, task.thinking, query.extra_body)}
@@ -169,7 +221,7 @@ def classify(snapshot, text, client):
             result["thinking"] = output["thinking"] if isinstance(output["thinking"], str) else (dumps(output["thinking"]) if output["thinking"] is not None else None)
             result["raw"] = output["content"] if isinstance(output["content"], (str, type(None))) else dumps(output["content"])
             parsed = parse_result(raw, task, text)
-            result.update(labels=parsed["labels"], rationale=parsed.get("rationale"), evidence=parsed.get("evidence", []), status="ok", error=None)
+            result.update(self_reported_confidence=parsed.get("self_reported_confidence"), alternative_interpretations=parsed.get("alternative_interpretations", []), labels=parsed["labels"], rationale=parsed.get("rationale"), evidence=parsed.get("evidence", []), status="ok", error=None)
             break
         except (ValueError, KeyError, IndexError, TypeError, httpx.HTTPError) as exc:
             # Never persist response bodies, credentials or full transport URLs in errors.

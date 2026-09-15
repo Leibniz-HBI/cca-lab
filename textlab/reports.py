@@ -154,23 +154,38 @@ def html_table(rows):
     return '<div class="table"><table><thead><tr>'+''.join('<th>'+html.escape(key)+'</th>' for key in keys)+'</tr></thead><tbody>'+''.join('<tr>'+''.join('<td>'+html.escape(display(row.get(key)))+'</td>' for key in keys)+'</tr>' for row in rows)+'</tbody></table></div>'
 
 
+def confidence_rows(report,scope):
+    rows=[]
+    for group in report['scopes'][scope].get('groups',[]):
+        row={'configuration':group['variant'],'group_id':group['group_id']}
+        for metric,values in group.get('confidence',{}).get('metrics',{}).items():
+            for stat,value in values.items():
+                row[metric+'_'+stat]=value
+        rows.append(row)
+    return rows
+
+
 def html_report(report,scope):
     title=html.escape(report['name'])
     images=''
     for kind,metric in (('overview','f1_macro'),('overview','active_seconds'),('classes','f1')):
         svg=base64.b64encode(render_chart(report,scope,kind,metric)).decode('ascii')
         images+=f'<img alt="{kind}" src="data:image/svg+xml;base64,{svg}">'
+    from .uncertainty import confidence_chart
+    for kind in ('reliability','risk'):
+        svg=base64.b64encode(confidence_chart(report,scope,kind)).decode('ascii')
+        images+=f'<h2>Confidence: {kind}</h2><img alt="{kind}" src="data:image/svg+xml;base64,{svg}">'
     notes=''.join('<p><strong>'+html.escape(key)+':</strong> '+html.escape(value)+'</p>' for key,value in report['policies'].items())
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{title}</title>
 <style>body{{font:16px/1.6 system-ui;color:#172438;max-width:1400px;margin:40px auto;padding:0 25px}}h1,h2{{line-height:1.3}}h1{{color:#007f87}}.table{{overflow:auto;margin:25px 0}}table{{border-collapse:collapse;font-size:13px}}th,td{{padding:8px 12px;border:1px solid #dce3ec;text-align:left;white-space:nowrap}}th{{background:#edf4f7}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef3f7;padding:20px}}@media print{{body{{margin:0}}.table{{overflow:visible}}table{{font-size:9px}}th,td{{padding:3px}}}}</style></head><body>
-<h1>{title}</h1><p>TextLab 0.5.0 · Evaluation report · {html.escape(scope)} · Gold documents: {report['gold']['total']} · Common assigned documents: {report['common_n']}</p>
+<h1>{title}</h1><p>TextLab 0.6.0 · Evaluation report · {html.escape(scope)} · Gold documents: {report['gold']['total']} · Common assigned documents: {report['common_n']}</p>
 <p>{html.escape(report['policies'][scope])}</p><h2>Model comparison</h2>{html_table(metric_rows(report,scope))}{images}<h2>Results by class</h2>{html_table(metric_rows(report,scope,True))}
-<h2>Scoring conventions</h2>{notes}<h2>Configuration and reproducibility</h2><pre>{html.escape(json.dumps({k:v for k,v in report.items() if k!='scopes'},ensure_ascii=False,indent=2))}</pre>
+<h2>Confidence metrics (mean and sample SD)</h2>{html_table(confidence_rows(report,scope))}<h2>Scoring conventions</h2>{notes}<h2>Configuration and reproducibility</h2><pre>{html.escape(json.dumps({k:v for k,v in report.items() if k!='scopes'},ensure_ascii=False,indent=2))}</pre>
 {''.join('<h3>'+html.escape(r['variant'])+'</h3><pre>'+html.escape(json.dumps(r['snapshot'],ensure_ascii=False,indent=2))+'</pre>' for r in report['scopes'][scope]['runs'])}
 </body></html>'''
 
 
-PREDICTION_FIELDS=['seed','fallback_used','variant','job_id','row_no','doc_id','text','gold_labels','predicted_labels','exact_match','status','error','rationale','evidence','thinking','raw','attempt_outputs','attempts','seconds']
+PREDICTION_FIELDS=['self_reported_confidence','alternative_interpretations','seed','fallback_used','variant','job_id','row_no','doc_id','text','gold_labels','predicted_labels','exact_match','status','error','rationale','evidence','thinking','raw','attempt_outputs','attempts','seconds']
 
 
 def prediction_chunks(id,format='csv'):
@@ -202,6 +217,15 @@ def report_zip(report,scope):
             archive.writestr('metrics.csv',table_csv(report,scope))
             archive.writestr('individual_runs.csv',csv_text(metric_rows(report,scope,individual=True)))
             archive.writestr('per_class.csv',table_csv(report,scope,True))
+            from .uncertainty import confidence_chart, agreement_chunks, experiment_runs
+            archive.writestr('confidence_metrics.csv',csv_text(confidence_rows(report,scope)))
+            archive.writestr('confidence.json',json.dumps([{'group_id':g['group_id'],'name':g['variant'],'confidence':g.get('confidence')} for g in report['scopes'][scope].get('groups',[])],allow_nan=False))
+            for kind in ('reliability','risk'):
+                for fmt in ('svg','png'):
+                    archive.writestr('confidence-'+kind+'.'+fmt,confidence_chart(report,scope,kind,fmt))
+            with archive.open('agreement.csv','w') as output:
+                for chunk in agreement_chunks(experiment_runs('evaluations',report['evaluation_id']),'csv'):
+                    output.write(chunk.encode('utf-8'))
             for kind,metric in (('overview','f1_macro'),('overview','active_seconds'),('classes','f1')):
                 for format in ('svg','png'):
                     archive.writestr((kind if metric in ('f1_macro','f1') else kind+'-'+metric)+'.'+format,render_chart(report,scope,kind,metric,format=format))

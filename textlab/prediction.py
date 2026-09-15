@@ -19,7 +19,7 @@ from .evaluation import TERMINAL
 from .eval_api import fetch
 
 router=APIRouter(prefix='/api/predictions',tags=['Prediction'])
-FORMATS={'csv','json','jsonl','parquet','manifest'}
+FORMATS={'csv','json','jsonl','parquet','manifest','agreement_csv','agreement_jsonl'}
 
 
 @router.post('',status_code=201)
@@ -84,6 +84,7 @@ def info(db,prediction):
         status=next((s for s in ('running','cancelling','pausing','queued','paused') if s in states),'queued')
     from .repetitions import aggregate_runs
     p.update(groups=aggregate_runs(runs),runs=runs,status=status,total=sum(r['total'] for r in runs),done=sum(r['done'] for r in runs),failed=sum(r['failed'] for r in runs),artifacts=[dict(r) for r in db.execute('SELECT format,bytes FROM prediction_artifacts WHERE prediction_id=? ORDER BY format',(p['id'],))])
+    p['query_count']={'planned':p['total'],'maximum_attempts':sum(r['total']*(r['snapshot']['query']['retries']+1) for r in runs),'runs':len(runs)}
     return p
 
 
@@ -120,7 +121,7 @@ def download(id: str,format: str):
         if p['artifact_status']!='ready':raise HTTPException(409,'Exports are not ready')
         row=db.execute('SELECT path FROM prediction_artifacts WHERE prediction_id=? AND format=?',(id,format)).fetchone()
     if not row or not Path(row['path']).is_file():raise HTTPException(404,'Stored export is missing from disk')
-    return FileResponse(row['path'],filename=f'prediction-{id}.{format if format!="manifest" else "manifest.json"}')
+    return FileResponse(row['path'],filename=f'prediction-{id}.{format.replace('_','.') if format!="manifest" else "manifest.json"}')
 
 
 def prediction_rows(prediction):
@@ -130,14 +131,14 @@ def prediction_rows(prediction):
         snapshot=json.loads(run['snapshot']);after=0
         while True:
             with connect() as db:
-                rows=db.execute('''SELECT d.row_no,d.data,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds,r.prompt_tokens,r.completion_tokens
+                rows=db.execute('''SELECT d.row_no,d.data,r.self_reported_confidence,r.alternative_interpretations,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds,r.prompt_tokens,r.completion_tokens
                 FROM records d LEFT JOIN results r ON r.job_id=? AND r.row_no=d.row_no
                 WHERE d.dataset_id=? AND d.row_no>? ORDER BY d.row_no LIMIT 500''',(run['id'],prediction['dataset_id'],after)).fetchall()
             if not rows:break
             for row in rows:
                 out=dict(row);out['source']=json.loads(out.pop('data'))
                 out['labels']=json.loads(out['labels']) if out['status'] in ('ok','fallback') else None
-                out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
+                out['alternative_interpretations']=json.loads(out['alternative_interpretations'] or '[]');out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
                 out.update(seed=snapshot['query'].get('seed'),fallback_used=out['status']=='fallback',status=out['status'] or 'not_processed',task_id=snapshot['task_id'],task_name=run['task_name'],job_id=run['id'])
                 yield out
             after=rows[-1]['row_no']
@@ -156,10 +157,10 @@ def build_artifacts(prediction):
         dataset=fetch(db,'datasets',prediction['dataset_id'])
         manifest=info(db,prediction)
     columns=json.loads(dataset['columns_json'])
-    meta=['seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
+    meta=['self_reported_confidence','alternative_interpretations','seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
     fields=['source.'+c for c in columns]+['prediction.'+c for c in meta]
     integer={'seed','row_no','attempts','prompt_tokens','completion_tokens'}
-    schema=pa.schema([(f,pa.bool_() if f=='prediction.fallback_used' else pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f=='prediction.seconds' else pa.string()) for f in fields])
+    schema=pa.schema([(f,pa.bool_() if f=='prediction.fallback_used' else pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f in ('prediction.seconds','prediction.self_reported_confidence') else pa.string()) for f in fields])
     with ExitStack() as stack:
         csvfile=stack.enter_context((staging/'results.csv').open('w',encoding='utf-8-sig',newline=''))
         jsonfile=stack.enter_context((staging/'results.json').open('w',encoding='utf-8'))
@@ -175,14 +176,22 @@ def build_artifacts(prediction):
             if len(batch)==500:parquet.write_table(pa.Table.from_pylist(batch,schema=schema));batch.clear()
         if batch:parquet.write_table(pa.Table.from_pylist(batch,schema=schema))
         jsonfile.write(']\n')
-    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.5.0',layout='one row per source record and task',created_at=time.time())
+    from .uncertainty import agreement_rows, experiment_runs
+    with (staging/'agreement.csv').open('w',encoding='utf-8',newline='') as csvout, (staging/'agreement.jsonl').open('w',encoding='utf-8') as jsonout:
+        writer=None
+        for row in agreement_rows(experiment_runs('predictions',prediction['id'])):
+            if writer is None:
+                writer=csv.DictWriter(csvout,fieldnames=list(row));writer.writeheader()
+            writer.writerow({k:safe_cell(dumps(v) if isinstance(v,(list,dict)) else v) for k,v in row.items()})
+            jsonout.write(dumps(row)+'\n')
+    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.6.0',layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
     os.replace(staging,final)
     with connect() as db:
         db.execute('DELETE FROM prediction_artifacts WHERE prediction_id=?',(prediction['id'],))
         for format in FORMATS:
-            path=final/('manifest.json' if format=='manifest' else 'results.'+format)
+            path=final/('manifest.json' if format=='manifest' else 'agreement.'+format.split('_')[1] if format.startswith('agreement_') else 'results.'+format)
             db.execute('INSERT INTO prediction_artifacts VALUES(?,?,?,?)',(prediction['id'],format,str(path),path.stat().st_size))
         db.execute("UPDATE predictions SET artifact_status='ready',artifact_error=NULL WHERE id=?",(prediction['id'],))
 

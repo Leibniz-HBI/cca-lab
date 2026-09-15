@@ -1,3 +1,13 @@
+# TextLab 0.6.0 validation
+
+- 68 automated tests passed in total: the 60 existing tests plus eight new uncertainty tests. New coverage includes finite confidence validation, single-/multi-label alternative sets, exact quotes, invalid-output retries and fallback, metric reference values, confidence ties and undefined outcomes, cancelled/duplicate-seed exclusions, nonempty alternative persistence, and numeric nullable confidence in Parquet.
+- Integration checks exercise evaluation query totals with per-variant seed lists and retry settings, confidence report grouping, SVG charts, HTML/report bundles, and persisted prediction agreement CSV/JSONL.
+- Playwright/Chromium exercises task settings, live evaluation model/temperature/seed count preview, per-variant retry ceiling, confidence plots, per-document agreement, prediction preview and saved agreement downloads. Desktop/mobile screenshots are included in docs/.
+- Tests use demo inference or simulated HTTP model responses. No real-model calibration accuracy, GPU throughput, or new million-row inference benchmark is claimed. Agreement uses bounded document pages; dataset-size benchmarks in earlier records are historical.
+- Three existing non-failing dependency/metric warnings remain. Schema version 5 is an additive migration. Confidence is uncalibrated; see UNCERTAINTY.md for estimands, exclusions and aggregation rules.
+
+## Earlier release validation
+
 # TextLab 0.5.0 validation
 
 - 60 automated tests passed on Python 3.12. New tests verify reuse of evaluated task and connection snapshots after editing or deleting their library entries, preservation of provenance, and rejection of invalid or unfinished source runs without partial predictions.

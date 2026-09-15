@@ -1,4 +1,8 @@
-# TextLab 0.5.0
+# TextLab 0.6.0
+
+## New in 0.6
+
+Optional self-reported confidence and structured competing interpretations; per-document seed agreement with durable prediction exports; confidence metrics, reliability and risk–coverage plots with means/SD; live planned query counts and retry ceilings. See [UNCERTAINTY.md](UNCERTAINTY.md).
 
 A self-hosted Python workbench for LLM text classification, multi-task prediction and gold-standard evaluation. FastAPI serves an English web interface; a separate worker sends bounded parallel requests to Ollama or an OpenAI-compatible API such as vLLM. SQLite WAL stores tasks, datasets, job snapshots and results.
 

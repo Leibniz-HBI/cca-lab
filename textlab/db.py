@@ -97,7 +97,7 @@ def init():
         # Additive, serialized migration from 0.1. API and worker may start together.
         db.execute("BEGIN IMMEDIATE")
         columns = {r[1] for r in db.execute("PRAGMA table_info(results)")}
-        for name, definition in {"evidence": "TEXT NOT NULL DEFAULT '[]'", "thinking": "TEXT", "attempt_outputs": "TEXT NOT NULL DEFAULT '[]'"}.items():
+        for name, definition in {"self_reported_confidence": "REAL", "alternative_interpretations": "TEXT NOT NULL DEFAULT '[]'", "evidence": "TEXT NOT NULL DEFAULT '[]'", "thinking": "TEXT", "attempt_outputs": "TEXT NOT NULL DEFAULT '[]'"}.items():
             if name not in columns:
                 db.execute(f"ALTER TABLE results ADD COLUMN {name} {definition}")
         old_jobs = {r[1] for r in db.execute("PRAGMA table_info(jobs)")}
@@ -114,7 +114,7 @@ def init():
         db.execute("CREATE INDEX IF NOT EXISTS result_errors ON results(job_id,row_no) WHERE error_count>0")
         if 'fallback_count' not in old_jobs:
             db.execute("ALTER TABLE jobs ADD COLUMN fallback_count INTEGER NOT NULL DEFAULT 0")
-        db.execute("PRAGMA user_version=4")
+        db.execute("PRAGMA user_version=5")
 
 
 def heartbeat():
