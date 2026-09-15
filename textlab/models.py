@@ -186,6 +186,7 @@ class NewEvaluation(RepeatedRuns):
 
 
 class NewPrediction(RepeatedRuns):
+    source_evaluation_job_id: str | None = None
     name: str = Field(min_length=1, max_length=200)
     dataset_id: str
     task_ids: list[str] = Field(min_length=1, max_length=50)

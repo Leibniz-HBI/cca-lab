@@ -31,8 +31,21 @@ def create_prediction(spec: NewPrediction):
             raise HTTPException(409,'Dataset must be fully imported and nonempty')
         if spec.text_column not in json.loads(dataset['columns_json']):
             raise HTTPException(422,'Unknown text column')
-        profile=fetch(db,'profiles',spec.profile_id)
-        tasks=[fetch(db,'tasks',id) for id in spec.task_ids]
+        source=None
+        if spec.source_evaluation_job_id:
+            source=fetch(db,'jobs',spec.source_evaluation_job_id)
+            if not db.execute('SELECT 1 FROM evaluation_runs WHERE job_id=?',(source['id'],)).fetchone():
+                raise HTTPException(422,'Source job must belong to an evaluation')
+            if source['status'] not in ('completed','completed_with_errors'):
+                raise HTTPException(409,'Complete the evaluation run before reusing its configuration')
+            saved=json.loads(source['snapshot'])
+            if spec.task_ids != [saved['task_id']]:
+                raise HTTPException(422,'Reused evaluation must use its evaluated task snapshot')
+            profile={'spec':dumps(saved['profile'])}
+            tasks=[{'id':saved['task_id'],'revision':saved['task_revision'],'spec':dumps(saved['task'])}]
+        else:
+            profile=fetch(db,'profiles',spec.profile_id)
+            tasks=[fetch(db,'tasks',id) for id in spec.task_ids]
         seeds = spec.seeds or [spec.query.seed]
         if len(tasks)*len(seeds)>500:
             raise HTTPException(422,'Maximum 500 total prediction runs')
@@ -48,6 +61,9 @@ def create_prediction(spec: NewPrediction):
                 except ValueError as exc:
                     raise HTTPException(422,str(exc)) from exc
                 snapshot['prediction_id']=id
+                if source:
+                    snapshot['source_evaluation_job_id']=source['id']
+                    snapshot['source_evaluation_id']=saved['evaluation_id']
                 name=snapshot['task']['name']
                 snapshot['experiment_name']=name
                 job=enqueue(db,f'{spec.name} / {name} · seed={seed}',dataset,snapshot,now+index*.000001)
@@ -159,7 +175,7 @@ def build_artifacts(prediction):
             if len(batch)==500:parquet.write_table(pa.Table.from_pylist(batch,schema=schema));batch.clear()
         if batch:parquet.write_table(pa.Table.from_pylist(batch,schema=schema))
         jsonfile.write(']\n')
-    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.4.0',layout='one row per source record and task',created_at=time.time())
+    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.5.0',layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
     os.replace(staging,final)

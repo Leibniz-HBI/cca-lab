@@ -1,4 +1,4 @@
-# Upgrade to TextLab 0.4.0
+# Upgrade to TextLab 0.5.0
 
 1. Stop both the API and worker. Back up the complete data directory/volume.
 2. Replace the source code in the existing project directory. Retain your `.env`, data directory and Compose project name.
@@ -21,3 +21,5 @@ Existing evaluation reports are invalidated once and rebuilt by the worker so th
 Do not run an older worker against the upgraded database. For rollback, stop both processes and restore the previous source and complete pre-upgrade backup together.
 
 Version 0.4 also adds error counters/indexing and fallback counters, backfills existing error records, and rebuilds evaluation reports with seed aggregates. This can take time on a large result database. Existing tasks have no fallback by default; historical outputs are unchanged. See REPETITIONS.md.
+
+Version 0.5 changes the workflow UI and adds evaluated-configuration reuse. Schema version remains 4. Existing data and URLs remain usable. Reload the browser after replacing the application. See WORKFLOW.md.

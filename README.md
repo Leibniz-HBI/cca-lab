@@ -1,8 +1,16 @@
-# TextLab 0.4.0
+# TextLab 0.5.0
 
 A self-hosted Python workbench for LLM text classification, multi-task prediction and gold-standard evaluation. FastAPI serves an English web interface; a separate worker sends bounded parallel requests to Ollama or an OpenAI-compatible API such as vLLM. SQLite WAL stores tasks, datasets, job snapshots and results.
 
-## New in 0.4
+## New in 0.5
+
+Five numbered research steps: **Define tasks → Prepare data → Evaluate & refine → Run predictions → Analyze & export**. Corpus and gold datasets are grouped together; Jobs & monitoring is separate, and LLM connections are under Configuration at the bottom of the sidebar.
+
+Contextual shortcuts preselect tasks/datasets, revise evaluated codebooks and transfer evaluated configurations to prediction while preserving task and connection snapshots. The new results hub brings completed reports and downloads together.
+
+See [WORKFLOW.md](WORKFLOW.md) for behavior and upgrade details.
+
+## Included from 0.4
 
 - Inspect and download job error logs while jobs run, including recovered retry failures and raw attempt outputs.
 - Set an optional task default label for failed LLM classifications; fallback labels remain explicitly flagged and counted.
@@ -60,13 +68,13 @@ Both processes must share `TEXTLAB_DATA` and API-key environment variables. Comp
 
 ## First prediction
 
-1. **Task library → New task:** define categories, instructions, examples and an ambiguity rule. Choose single-label or multi-label classification. Configure rationale, exact evidence quotes and thinking.
-2. **LLM connections → New connection:** configure your model server. Use **List models** to check it. The demo provider always returns the first category and is only a plumbing test.
-3. **Datasets → Upload CSV:** choose delimiter and encoding; wait for **Ready**.
-4. **Prediction → New prediction:** select the dataset, text column, one or more tasks, connection and model. Use Ctrl/Cmd to select multiple tasks. Advanced parameters can override task settings; by default each task retains its own settings.
+1. **Define tasks → New task:** define categories, instructions, examples and an ambiguity rule. Choose single-label or multi-label classification. Configure rationale, exact evidence quotes and thinking.
+2. **Configuration → LLM connections → New connection:** configure your model server. Use **List models** to check it. The demo provider always returns the first category and is only a plumbing test.
+3. **Prepare data → Upload CSV:** choose delimiter and encoding; wait for **Ready**.
+4. **Run predictions → New prediction:** select the dataset, text column, one or more tasks, connection and model. Use Ctrl/Cmd to select multiple tasks. Advanced parameters can override task settings; by default each task retains its own settings.
 5. Open the prediction batch to monitor task runs, pause/resume/cancel, inspect individual results and download persisted exports.
 
-The **Classification jobs** workspace remains available for individual jobs, including child runs belonging to predictions or evaluations.
+The **Jobs & monitoring** workspace remains available for individual jobs, including child runs belonging to predictions or evaluations.
 
 ## Model connections and thinking
 

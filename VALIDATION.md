@@ -1,3 +1,13 @@
+# TextLab 0.5.0 validation
+
+- 60 automated tests passed on Python 3.12. New tests verify reuse of evaluated task and connection snapshots after editing or deleting their library entries, preservation of provenance, and rejection of invalid or unfinished source runs without partial predictions.
+- Playwright/Chromium passed the five-step navigation, combined corpus/gold preparation, task and dataset shortcuts, task revision, evaluated-configuration reuse, results filtering and grouping without duplicate child runs.
+- Desktop and 390 px mobile views were visually inspected. Configuration remains accessible on mobile; no horizontal page overflow, JavaScript errors or HTTP 5xx responses occurred. Screenshots: `docs/workflow-desktop.png` and `docs/workflow-mobile.png`.
+- Browser inference used the demo model. No real GPU/model benchmark or new large-scale import benchmark was performed for this UI release.
+- Database schema remains version 4. Existing data is compatible; restart API/worker processes and reload the browser after upgrading. Three existing non-failing dependency/metric warnings remain.
+
+## Earlier release validation
+
 # TextLab 0.4.0 validation
 
 - 58 automated tests passed on Python 3.12: all previous tests plus fallback/retry preservation, invalid fallback validation, live error pagination, recovered retry filtering, streaming error export, error-index migration, multi-seed evaluation/prediction expansion, seed validation/run limits, per-run means/sample SD, null denominators and cancellation-safe common scoring.

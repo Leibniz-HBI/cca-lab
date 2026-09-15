@@ -25,7 +25,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="TextLab", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.5.0", lifespan=lifespan)
 
 
 def get(db, table, id):
@@ -186,6 +186,8 @@ def create_job(job: NewJob):
 def job_row(row, detail=False):
     result = dict(row)
     snapshot = json.loads(result.pop("snapshot"))
+    result["evaluation_id"] = snapshot.get("evaluation_id")
+    result["prediction_id"] = snapshot.get("prediction_id")
     result["model"] = snapshot["query"]["model"]
     result["task_name"] = snapshot["task"]["name"]
     if detail:

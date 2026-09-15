@@ -120,7 +120,7 @@ def build_report(evaluation_id):
     task_snapshot = json.loads(evaluation['task_snapshot'])
     task = task_snapshot['task']
     labels = [c['label'] for c in task['categories']]
-    report = {'schema_version':2,'framework_version':'0.4.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
+    report = {'schema_version':2,'framework_version':'0.5.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
               'task_snapshot':task_snapshot,'gold':{'id':gold_set['id'],'total':len(gold),'spec':json.loads(gold_set['spec']),'label_counts':json.loads(gold_set['label_counts'])},
               'labels':labels,'mode':task['mode'],'policies':POLICIES,'common_n':len(common),'scopes':{'valid':{'runs':[]},'common':{'runs':[]}}}
     for run in runs:
