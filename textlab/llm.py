@@ -1,3 +1,4 @@
+import logging
 import json
 import os
 import re
@@ -202,6 +203,7 @@ def classify(snapshot, text, client):
     prompt = messages(task, query, text)
     schema = output_schema(task)
     for attempt in range(query.retries + 1):
+        logging.getLogger(__name__).debug("llm_attempt task_id=%s attempt=%s max_attempts=%s", snapshot.get("task_id"), attempt+1, query.retries+1)
         result["attempts"] += 1
         output = {"prompt_protocol": PROMPT_PROTOCOL, "attempt": attempt + 1, "started_at": time.time(), "content": None, "thinking": None, "error": None}
         result["attempt_outputs"].append(output)
@@ -259,6 +261,7 @@ def classify(snapshot, text, client):
             result.update(candidate_interpretations=parsed.get("candidate_interpretations", []), self_reported_confidence=parsed.get("self_reported_confidence"), alternative_interpretations=parsed.get("alternative_interpretations", []), labels=parsed["labels"], rationale=parsed.get("rationale"), evidence=parsed.get("evidence", []), status="ok", error=None)
             break
         except (ValueError, KeyError, IndexError, TypeError, httpx.HTTPError) as exc:
+            logging.getLogger(__name__).debug("llm_attempt_failed task_id=%s attempt=%s error_type=%s", snapshot.get("task_id"), attempt+1, type(exc).__name__)
             # Never persist response bodies, credentials or full transport URLs in errors.
             if isinstance(exc, httpx.HTTPStatusError):
                 code = exc.response.status_code

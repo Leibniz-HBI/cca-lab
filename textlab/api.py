@@ -1,3 +1,5 @@
+import logging
+import uuid
 import csv
 import io
 import json
@@ -19,13 +21,39 @@ from .models import Task, Profile, NewJob, Query
 from .jobs import enqueue, snapshot_for
 
 
+log = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app):
+    from .logging_config import configure_logging
+    configure_logging()
     init()
+    log.info("api_started")
     yield
+    log.info("api_stopped")
 
 
-app = FastAPI(title="TextLab", version="0.8.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.8.1", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    request_id = uuid.uuid4().hex[:16]
+    request.state.request_id = request_id
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        log.exception("request_failed request_id=%s method=%s", request_id, request.method)
+        raise
+    route = request.scope.get("route")
+    path = getattr(route, "path", "<static-or-unmatched>")
+    level = logging.WARNING if response.status_code >= 400 else logging.DEBUG
+    log.log(level, "request_completed request_id=%s method=%s route=%s status=%s seconds=%.3f",
+            request_id, request.method, path, response.status_code, time.monotonic()-started)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 def get(db, table, id):
@@ -67,10 +95,13 @@ def create_task(task: Task):
 async def import_cca(request: Request):
     from .cca import from_codebook
     from pydantic import ValidationError
+    log.info("cca_import_started request_id=%s", request.state.request_id)
     content=bytearray()
     async for chunk in request.stream():
         content.extend(chunk)
-        if len(content)>5*1024*1024:raise HTTPException(413,"Maximum codebook size is 5 MiB")
+        if len(content)>5*1024*1024:
+            log.warning("cca_import_rejected request_id=%s reason=size_limit", request.state.request_id)
+            raise HTTPException(413,"Maximum codebook size is 5 MiB")
     try:
         def unique_pairs(pairs):
             result={}
@@ -81,8 +112,11 @@ async def import_cca(request: Request):
         doc=json.loads(content.decode('utf-8-sig'),object_pairs_hook=unique_pairs)
         task=from_codebook(doc)
     except (ValueError,UnicodeError,ValidationError,RecursionError) as exc:
+        log.warning("cca_import_rejected request_id=%s reason=validation error_type=%s bytes=%s", request.state.request_id, type(exc).__name__, len(content))
         raise HTTPException(422,'CCA import: '+str(exc)[:2000]) from exc
-    return create_task(task)
+    result = create_task(task)
+    log.info("cca_import_completed request_id=%s task_id=%s categories=%s bytes=%s", request.state.request_id, result["id"], len(task.categories), len(content))
+    return result
 
 
 @app.get("/api/tasks/{id}/export-cca")

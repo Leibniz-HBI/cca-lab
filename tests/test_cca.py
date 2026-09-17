@@ -90,3 +90,20 @@ def test_bom_duplicate_keys_invalid_json_and_upload_limit(client):
         assert client.post('/api/tasks/import-cca',content=content).status_code==422
     assert client.post('/api/tasks/import-cca',content=b' '* (5*1024*1024+1)).status_code==413
     assert len(client.get('/api/tasks').json())==before
+
+
+def test_import_diagnostics_correlate_without_payload(client, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG, logger="textlab")
+    doc = codebook()
+    doc["description"] = "PRIVATE_CODEBOOK_CONTENT"
+    response = client.post("/api/tasks/import-cca", json=doc)
+    request_id = response.headers["X-Request-ID"]
+    assert response.status_code == 201
+    assert "cca_import_completed request_id=" + request_id in caplog.text
+    assert response.json()["id"] in caplog.text
+    failed = client.post("/api/tasks/import-cca", json={"secret": "PRIVATE_BAD_CONTENT"})
+    assert failed.status_code == 422
+    assert "cca_import_rejected request_id=" + failed.headers["X-Request-ID"] in caplog.text
+    assert "PRIVATE_CODEBOOK_CONTENT" not in caplog.text
+    assert "PRIVATE_BAD_CONTENT" not in caplog.text

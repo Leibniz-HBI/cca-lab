@@ -1,6 +1,12 @@
 'use strict';
+// Keep the picker connected while background refresh replaces #view.
+const ccaFile=document.createElement('input');
+ccaFile.id='cca-file';ccaFile.type='file';ccaFile.accept='.json,application/json';
+ccaFile.style.display='none';document.body.appendChild(ccaFile);
+let ccaImportBusy=false,ccaImportMessage='';
+function ccaStatus(message){ccaImportMessage=message;const el=$('#cca-import-status');if(el)el.textContent=message;}
 const baseRenderTasks=renderTasks;
-renderTasks=function(){baseRenderTasks();$('#view').insertAdjacentHTML('afterbegin','<div class="actions spaced"><button data-action="cca-import">Import CCA codebook JSON</button><input id="cca-file" style="display:none" type="file" accept=".json,application/json" hidden><span class="small">CCA 0.1 · category IDs become output labels</span></div>');document.querySelectorAll('[data-action="download-task"]').forEach(b=>b.insertAdjacentHTML('afterend',`<button data-action="cca-export" data-id="${b.dataset.id}">CCA JSON ↓</button>`));};
+renderTasks=function(){baseRenderTasks();$('#view').insertAdjacentHTML('afterbegin','<div class="actions spaced"><button data-action="cca-import">Import CCA codebook JSON</button><span class="small">CCA 0.1 · category IDs become output labels</span><span id="cca-import-status" role="status"></span></div>');ccaStatus(ccaImportMessage);$('[data-action=cca-import]').disabled=ccaImportBusy;document.querySelectorAll('[data-action="download-task"]').forEach(b=>b.insertAdjacentHTML('afterend',`<button data-action="cca-export" data-id="${b.dataset.id}">CCA JSON ↓</button>`));};
 const baseCategoryHTML=categoryHTML;
 categoryHTML=function(c={label:'',definition:'',examples:[]}){
  const extra={display_label:c.display_label||'',inclusion_criteria:c.inclusion_criteria||[],exclusion_criteria:c.exclusion_criteria||[],coding_notes:c.coding_notes||'',aliases:c.aliases||[]};
@@ -23,18 +29,33 @@ readTask=function(){
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-action]');if(!b)return;
  try{
-  if(b.dataset.action==='cca-import')$('#cca-file').click();
+  if(b.dataset.action==='cca-import'&&!ccaImportBusy){console.debug('[TextLab] CCA picker opened');ccaFile.click();}
   if(b.dataset.action==='cca-export'){
    const response=await fetch('/api/tasks/'+b.dataset.id+'/export-cca');if(!response.ok)throw Error((await response.json()).detail);
    const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download='codebook-'+b.dataset.id+'.cca.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
  }catch(error){toast(error.message);}
 });
-document.addEventListener('change',async e=>{
- if(e.target.id!=='cca-file')return;const file=e.target.files[0];if(!file)return;
+ccaFile.addEventListener('change',async ()=>{
+ const file=ccaFile.files[0];if(!file||ccaImportBusy)return;
+ ccaImportBusy=true;const button=$('[data-action=cca-import]');if(button)button.disabled=true;
+ ccaStatus('Importing CCA codebook…');
+ console.debug('[TextLab] CCA import started',{bytes:file.size});
+ let importedId=null;
  try{
   if(file.size>5*1024*1024)throw Error('Maximum codebook size is 5 MiB.');
-  const response=await fetch('/api/tasks/import-cca',{method:'POST',headers:{'Content-Type':'application/json'},body:file}),body=await response.json();if(!response.ok)throw Error(body.detail);
-  state.tasks=await api('/tasks');render();taskEditor(body.id);toast('CCA codebook imported as a new task. Review settings before running.');
- }catch(error){toast(error.message);}finally{e.target.value='';}
+  const response=await fetch('/api/tasks/import-cca',{method:'POST',headers:{'Content-Type':'application/json'},body:file});
+  const requestId=response.headers.get('X-Request-ID');
+  console.debug('[TextLab] CCA import response',{status:response.status,requestId});
+  let body;try{body=await response.json();}catch{throw Error('Server returned an unreadable response (HTTP '+response.status+'). Check server logs.');}
+  if(!response.ok)throw Error((typeof body.detail==='string'?body.detail:JSON.stringify(body.detail)||'Import failed')+(requestId?' [Request '+requestId+']':''));
+  importedId=body.id;
+  state.tasks=await api('/tasks');
+  ccaStatus('CCA codebook imported successfully.');render();taskEditor(body.id);
+  toast('CCA codebook imported as a new task. Review settings before running.');
+ }catch(error){
+  const message=importedId?'Task imported ('+importedId+'), but the view could not refresh. Reload the page.':error.message;
+  ccaStatus(message);toast(message);
+  console.warn('[TextLab] CCA import failed',{stage:importedId?'refresh':'upload',errorType:error.name});
+ }finally{ccaImportBusy=false;ccaFile.value='';const button=$('[data-action=cca-import]');if(button)button.disabled=false;}
 });

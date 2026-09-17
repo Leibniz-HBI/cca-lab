@@ -1,4 +1,4 @@
-# Upgrade to TextLab 0.8.0
+# Upgrade to TextLab 0.8.1
 
 1. Stop both the API and worker. Back up the complete data directory/volume.
 2. Replace the source code in the existing project directory. Retain your `.env`, data directory and Compose project name.
@@ -29,3 +29,7 @@ Version 0.6 adds nullable self-reported confidence and structured-alternatives c
 Version 0.7 adds the candidate_interpretations column (schema 6) and fixes the prompt protocol to evidence-first-v1. Historical alternatives, results and saved artifacts are retained. Existing field-enable switches still work, but there is no ordering option. Finish pending jobs with the previous worker before upgrading if experiments must not mix generation protocols. A resumed old job uses the new prompt for remaining requests; attempt logs record the protocol. Re-evaluate reused historical configurations under the new prompt before relying on their previous quality measurements. See UNCERTAINTY.md.
 
 Version 0.8 adds CCA 0.1 import/export and structured codebook fields stored in task JSON; database schema remains 6. Reinstall requirements or rebuild containers to install JSON Schema format validation dependencies. Restart both processes and reload the browser. The new prompt includes codebook unit/context and structured category criteria; complete existing experiments with their original worker if identical prompt construction is required. See CCA.md.
+
+Version 0.8.1 fixes CCA file selection during automatic refresh and adds diagnostics.
+No database migration or dependency change from 0.8.0 is required. Restart API and
+worker and hard-refresh the browser. See LOGGING.md for TEXTLAB_LOG_LEVEL.

@@ -1,4 +1,6 @@
-# TextLab 0.8.0
+# TextLab 0.8.1
+
+Patch: CCA import survives background refresh, with persistent error feedback and request-correlated application diagnostics. See [LOGGING.md](LOGGING.md).
 
 ## New in 0.8
 

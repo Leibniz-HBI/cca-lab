@@ -1,4 +1,10 @@
-# TextLab 0.8.0 validation
+# TextLab 0.8.1 validation
+
+83 Python tests pass, including import-log correlation and payload exclusion. Browser regression opens the actual file picker, forces two background refreshes, checks invalid-file feedback persists, then imports/edits/exports a valid codebook. No browser JavaScript errors or HTTP 5xx responses.
+
+Reproduce the browser check against an empty disposable server using Playwright: install playwright and its Chromium browser, then run node tests/cca_browser.cjs (TEXTLAB_TEST_URL defaults to http://127.0.0.1:8099). This check creates a task; use disposable data.
+
+Previous 0.8 validation:
 
 - 82 automated tests passed, including 11 CCA cases covering round-trip metadata, edited codebook fields, prompt inclusion of criteria/context, machine IDs versus display names, example label references, duplicate IDs/JSON keys, invalid dates and semantic versions, extra fields, multi-label and one-category codebooks, native-task export, BOM handling and the 5 MiB upload limit.
 - Invalid imports leave the task library unchanged. Export uses the current task fields and validates the resulting CCA document. CCA cannot encode empty-label tasks; those exports fail explicitly.

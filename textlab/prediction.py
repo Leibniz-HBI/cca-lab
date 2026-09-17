@@ -184,7 +184,7 @@ def build_artifacts(prediction):
                 writer=csv.DictWriter(csvout,fieldnames=list(row));writer.writeheader()
             writer.writerow({k:safe_cell(dumps(v) if isinstance(v,(list,dict)) else v) for k,v in row.items()})
             jsonout.write(dumps(row)+'\n')
-    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.8.0',layout='one row per source record and task',created_at=time.time())
+    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.8.1',layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
     os.replace(staging,final)
@@ -203,7 +203,10 @@ def finalize_prediction():
         AND NOT EXISTS(SELECT 1 FROM prediction_runs r JOIN jobs j ON j.id=r.job_id WHERE r.prediction_id=p.id AND j.status NOT IN ('completed','completed_with_errors','cancelled')) ORDER BY created LIMIT 1""").fetchone()
         if not p:return False
         db.execute("UPDATE predictions SET artifact_status='building' WHERE id=?",(p['id'],))
-    try:build_artifacts(dict(p))
+    try:
+        logging.getLogger(__name__).info("prediction_export_started prediction_id=%s", p["id"])
+        build_artifacts(dict(p))
+        logging.getLogger(__name__).info("prediction_export_completed prediction_id=%s", p["id"])
     except Exception:
         logging.getLogger(__name__).exception('Prediction export failed')
         with connect() as db:db.execute("UPDATE predictions SET artifact_status='failed',artifact_error='Export failed; check worker log and available disk space.' WHERE id=?",(p['id'],))

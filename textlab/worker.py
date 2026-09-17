@@ -20,6 +20,7 @@ stopping = threading.Event()
 
 def import_dataset(dataset):
     did = dataset["id"]
+    log.info("dataset_import_started dataset_id=%s", did)
     with connect() as db:
         db.execute("UPDATE datasets SET status='importing',total=0,error=NULL WHERE id=?", (did,))
         db.execute("DELETE FROM records WHERE dataset_id=?", (did,))
@@ -47,18 +48,24 @@ def import_dataset(dataset):
             save_import(did, batch, total)
             with connect() as db:
                 db.execute("UPDATE datasets SET status='ready',total=? WHERE id=?", (total, did))
+        log.info("dataset_import_completed dataset_id=%s rows=%s", did, total)
     except Exception as exc:
+        log.warning("dataset_import_failed dataset_id=%s error_type=%s", did, type(exc).__name__)
         with connect() as db:
             db.execute("UPDATE datasets SET status='failed',error=? WHERE id=?", (str(exc)[:1000], did))
 
 
 def save_import(did, batch, total):
+    log.debug("dataset_import_progress dataset_id=%s rows=%s", did, total)
     with connect() as db:
         db.executemany("INSERT INTO records VALUES(?,?,?)", batch)
         db.execute("UPDATE datasets SET total=? WHERE id=?", (total, did))
 
 
 def save_result(job_id, row_no, result):
+    log.log(logging.WARNING if result["status"] != "ok" else logging.DEBUG,
+            "classification_result job_id=%s row=%s status=%s attempts=%s seconds=%s",
+            job_id, row_no, result["status"], result["attempts"], result["seconds"])
     with connect() as db:
         inserted = db.execute("INSERT OR IGNORE INTO results(job_id,row_no,labels,rationale,status,error,raw,attempts,seconds,prompt_tokens,completion_tokens,evidence,thinking,attempt_outputs,error_count,self_reported_confidence,alternative_interpretations,candidate_interpretations) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
             job_id, row_no, dumps(result["labels"]), result["rationale"], result["status"], result["error"], result["raw"],
@@ -69,6 +76,7 @@ def save_result(job_id, row_no, result):
 
 
 def run_batch(job):
+    log.debug("job_batch job_id=%s cursor=%s", job["id"], job["cursor"])
     snap = json.loads(job["snapshot"])
     concurrency = snap["query"]["concurrency"]
     # Cursor is committed only after the whole bounded window has settled.
@@ -79,6 +87,7 @@ def run_batch(job):
         completed = {r[0] for r in db.execute("SELECT row_no FROM results WHERE job_id=? AND row_no>? AND row_no<=?", (
             job["id"], job["cursor"], rows[-1]["row_no"] if rows else job["cursor"]))}
     if not rows:
+        log.info("job_finished job_id=%s done=%s failed=%s", job["id"], job["done"], job["failed"])
         with connect() as db:
             db.execute("UPDATE jobs SET status=CASE WHEN failed>0 THEN 'completed_with_errors' ELSE 'completed' END,updated=?,finished_at=? WHERE id=? AND status='running'", (time.time(), time.time(), job["id"]))
         return
@@ -124,6 +133,8 @@ def tick():
         if job:
             db.execute("UPDATE jobs SET status='running',updated=? WHERE id=? AND status='queued'", (time.time(), job["id"]))
     if job:
+        if job["status"] == "queued":
+            log.info("job_started job_id=%s total=%s", job["id"], job["total"])
         try:
             timed_batch(dict(job), run_batch)
         except Exception:
@@ -141,7 +152,8 @@ def pulse():
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    from .logging_config import configure_logging
+    configure_logging()
     init()
     lock = open(root() / "worker.lock", "a")
     try:
