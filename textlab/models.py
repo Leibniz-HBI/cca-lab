@@ -10,12 +10,18 @@ class StrictModel(BaseModel):
 
 
 class Category(StrictModel):
+    display_label: str = ""
+    inclusion_criteria: list[str] = Field(default_factory=list)
+    exclusion_criteria: list[str] = Field(default_factory=list)
+    coding_notes: str = ""
+    aliases: list[str] = Field(default_factory=list)
     label: str = Field(min_length=1, max_length=100)
     definition: str = Field(min_length=1, max_length=10000)
     examples: list[str] = Field(default_factory=list, max_length=100)
 
 
 class Example(StrictModel):
+    context: str = ""
     text: str = Field(min_length=1, max_length=50000)
     labels: list[str]
     rationale: str = ""
@@ -25,11 +31,14 @@ ThinkingLevel = Literal["default", "off", "on", "minimal", "low", "medium", "hig
 
 
 class Task(StrictModel):
+    cca_source: dict | None = None
+    unit_of_analysis: str = "document"
+    context: str = ""
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
     instructions: str = Field(min_length=1, max_length=30000)
     mode: Literal["single", "multi"] = "single"
-    categories: list[Category] = Field(min_length=2, max_length=200)
+    categories: list[Category] = Field(min_length=1, max_length=200)
     examples: list[Example] = Field(default_factory=list, max_length=200)
     ambiguity_rule: str = "Choose the best supported category. Do not infer unsupported claims."
     allow_empty: bool = False
@@ -42,6 +51,9 @@ class Task(StrictModel):
 
     @model_validator(mode="after")
     def check(self):
+        if self.cca_source is not None:
+            from .cca import validate_codebook
+            validate_codebook(self.cca_source)
         labels = [c.label for c in self.categories]
         if len(labels) != len(set(labels)):
             raise ValueError("Labels must be unique")

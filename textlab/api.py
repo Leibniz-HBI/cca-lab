@@ -25,7 +25,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="TextLab", version="0.7.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.8.0", lifespan=lifespan)
 
 
 def get(db, table, id):
@@ -61,6 +61,38 @@ def create_task(task: Task):
     with connect() as db:
         db.execute("INSERT INTO tasks VALUES(?,?,?,?)", (id, 1, task.model_dump_json(), time.time()))
     return {"id": id}
+
+
+@app.post("/api/tasks/import-cca", status_code=201)
+async def import_cca(request: Request):
+    from .cca import from_codebook
+    from pydantic import ValidationError
+    content=bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content)>5*1024*1024:raise HTTPException(413,"Maximum codebook size is 5 MiB")
+    try:
+        def unique_pairs(pairs):
+            result={}
+            for key,value in pairs:
+                if key in result:raise ValueError('Duplicate JSON key: '+key)
+                result[key]=value
+            return result
+        doc=json.loads(content.decode('utf-8-sig'),object_pairs_hook=unique_pairs)
+        task=from_codebook(doc)
+    except (ValueError,UnicodeError,ValidationError,RecursionError) as exc:
+        raise HTTPException(422,'CCA import: '+str(exc)[:2000]) from exc
+    return create_task(task)
+
+
+@app.get("/api/tasks/{id}/export-cca")
+def export_cca(id: str):
+    from .cca import to_codebook
+    from fastapi.responses import Response
+    with connect() as db:row=get(db,'tasks',id)
+    try:doc=to_codebook(Task.model_validate_json(row['spec']),id,row['revision'])
+    except ValueError as exc:raise HTTPException(422,str(exc)) from exc
+    return Response(json.dumps(doc,ensure_ascii=False,indent=2,allow_nan=False),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="codebook-{id}.cca.json"'})
 
 
 @app.put("/api/tasks/{id}")

@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cca-schema.org/schema/0.1/schema.json",
+  "title": "CCA Schema 0.1",
+  "description": "A slim interchange schema for a single automatic or manual content-analysis classification task.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "id",
+    "version",
+    "title",
+    "description",
+    "task"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri-reference",
+      "description": "URI identifying the JSON Schema against which this codebook document is validated."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Stable identifier for this codebook."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Semantic version of this particular codebook."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable name of the classification task."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Short description of the construct measured by the classification task."
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$",
+      "description": "BCP 47 language tag for the codebook's instructions, definitions, and examples. A codebook document has only one language."
+    },
+    "authors": {
+      "$ref": "#/$defs/personNames"
+    },
+    "maintainers": {
+      "$ref": "#/$defs/personNames"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date",
+      "description": "Date on which this codebook version was created, in ISO 8601 full-date format."
+    },
+    "modified_at": {
+      "type": "string",
+      "format": "date",
+      "description": "Date on which this codebook version was last modified, in ISO 8601 full-date format."
+    },
+    "references": {
+      "type": "array",
+      "description": "Theoretical or methodological sources for the codebook.",
+      "items": {
+        "$ref": "#/$defs/reference"
+      },
+      "uniqueItems": true
+    },
+    "task": {
+      "$ref": "#/$defs/task"
+    },
+    "examples": {
+      "type": "array",
+      "description": "Coding examples whose labels refer to category IDs defined in task.categories.",
+      "items": {
+        "$ref": "#/$defs/example"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "properties": {
+              "classification_mode": {
+                "const": "single_label"
+              }
+            },
+            "required": [
+              "classification_mode"
+            ]
+          }
+        },
+        "required": [
+          "task"
+        ]
+      },
+      "then": {
+        "properties": {
+          "examples": {
+            "items": {
+              "properties": {
+                "labels": {
+                  "maxItems": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "personNames": {
+      "type": "array",
+      "description": "Names of people or organizations responsible for the codebook.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "citation"
+      ],
+      "properties": {
+        "citation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable bibliographic citation."
+        },
+        "doi": {
+          "type": "string",
+          "pattern": "^10\\.[0-9]{4,9}/\\S+$",
+          "description": "DOI without a URL prefix."
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instructions",
+        "unit_of_analysis",
+        "classification_mode",
+        "categories"
+      ],
+      "properties": {
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "description": "General coding instructions for the task. Markdown may be used."
+        },
+        "unit_of_analysis": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Description of the unit that receives one classification, such as sentence, paragraph, post, or document."
+        },
+        "classification_mode": {
+          "type": "string",
+          "enum": [
+            "single_label",
+            "multi_label"
+          ],
+          "description": "Whether exactly one or multiple category labels may be assigned to a unit."
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Description of additional context that may be used and how it should affect coding."
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Permitted classification categories. Category IDs must be unique within the document.",
+          "$comment": "JSON Schema Draft 2020-12 cannot enforce uniqueness of one property across array objects; implementations must verify unique category IDs.",
+          "items": {
+            "$ref": "#/$defs/category"
+          }
+        }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "definition"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Stable machine-facing category identifier. Conventional manual codes such as '102' are permitted."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-facing category name."
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Conceptual and operational meaning of the category."
+        },
+        "inclusion_criteria": {
+          "$ref": "#/$defs/nonEmptyStringArray",
+          "description": "Conditions supporting assignment of this category."
+        },
+        "exclusion_criteria": {
+          "$ref": "#/$defs/nonEmptyStringArray",
+          "description": "Similar cases in which this category must not be assigned."
+        },
+        "coding_notes": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Additional remarks or clarifications for coding."
+        },
+        "aliases": {
+          "$ref": "#/$defs/nonEmptyStringArray",
+          "description": "Alternative or historical labels for this category."
+        }
+      }
+    },
+    "example": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "labels"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Example text to classify."
+        },
+        "labels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Correct category ID or IDs for the example. Each value must match an ID in task.categories.",
+          "$comment": "Referential integrity between example labels and task category IDs must be verified by implementations.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Additional contextual material for interpreting the example."
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Explanation of why the assigned labels apply."
+        }
+      }
+    },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

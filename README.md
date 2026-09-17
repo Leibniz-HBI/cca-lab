@@ -1,4 +1,8 @@
-# TextLab 0.7.0
+# TextLab 0.8.0
+
+## New in 0.8
+
+Import and export CCA Schema 0.1 codebooks from the task library. Category IDs remain output labels; display names, criteria, context, examples and provenance are preserved. See [CCA.md](CCA.md).
 
 ## New in 0.7
 

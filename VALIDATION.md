@@ -1,3 +1,13 @@
+# TextLab 0.8.0 validation
+
+- 82 automated tests passed, including 11 CCA cases covering round-trip metadata, edited codebook fields, prompt inclusion of criteria/context, machine IDs versus display names, example label references, duplicate IDs/JSON keys, invalid dates and semantic versions, extra fields, multi-label and one-category codebooks, native-task export, BOM handling and the 5 MiB upload limit.
+- Invalid imports leave the task library unchanged. Export uses the current task fields and validates the resulting CCA document. CCA cannot encode empty-label tasks; those exports fail explicitly.
+- Playwright/Chromium passed real file import, task editing, JSON download, metadata/criteria/context preservation, prompt preview, and desktop/mobile rendering without JavaScript or HTTP 5xx errors. Screenshots are included in docs/.
+- A Python wheel was built successfully and checked to include the exact user-provided CCA 0.1 schema. Native and CCA formats remain separate; no remote schema is fetched.
+- Existing three non-failing dependency/metric warnings remain. No real-model/GPU quality or new large-corpus benchmark was performed for this interchange release. Database schema remains 6.
+
+## Earlier release validation
+
 # TextLab 0.7.0 validation
 
 - 71 automated tests passed. Fixed-order coverage checks all 16 combinations of optional evidence, candidate comparison, rationale and confidence fields, with matching schema/required lists, instructions, few-shot examples and demo output.
