@@ -9,39 +9,23 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class Category(StrictModel):
-    display_label: str = ""
+class Category(BaseModel):
+    """Read-only runtime view; authoritative values live in the CCA codebook."""
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    label: str
+    definition: str
     inclusion_criteria: list[str] = Field(default_factory=list)
     exclusion_criteria: list[str] = Field(default_factory=list)
     coding_notes: str = ""
     aliases: list[str] = Field(default_factory=list)
-    label: str = Field(min_length=1, max_length=100)
-    definition: str = Field(min_length=1, max_length=10000)
-    examples: list[str] = Field(default_factory=list, max_length=100)
-
-
-class Example(StrictModel):
-    context: str = ""
-    text: str = Field(min_length=1, max_length=50000)
-    labels: list[str]
-    rationale: str = ""
 
 
 ThinkingLevel = Literal["default", "off", "on", "minimal", "low", "medium", "high", "max"]
 
 
-class Task(StrictModel):
-    cca_source: dict | None = None
-    unit_of_analysis: str = "document"
-    context: str = ""
-    name: str = Field(min_length=1, max_length=200)
-    description: str = ""
-    instructions: str = Field(min_length=1, max_length=30000)
-    mode: Literal["single", "multi"] = "single"
-    categories: list[Category] = Field(min_length=1, max_length=200)
-    examples: list[Example] = Field(default_factory=list, max_length=200)
-    ambiguity_rule: str = "Choose the best supported category. Do not infer unsupported claims."
-    allow_empty: bool = False
+class ExecutionDefaults(StrictModel):
+    model_config = ConfigDict(extra="forbid")
     rationale: bool = False
     alternatives: bool = False
     confidence: bool = False
@@ -49,32 +33,68 @@ class Task(StrictModel):
     thinking: ThinkingLevel = "default"
     default_label: str | None = None
 
+
+class Task(StrictModel):
+    """CCA is the sole coding instrument; execution options are not CCA fields."""
+    codebook: dict
+    execution_defaults: ExecutionDefaults = Field(default_factory=ExecutionDefaults)
+
+    @field_validator("codebook")
+    @classmethod
+    def check_codebook(cls, value):
+        from .cca import codebook_errors
+        from pydantic_core import PydanticCustomError
+        errors = codebook_errors(value)
+        if errors:
+            raise PydanticCustomError("cca_schema", "{message}", {
+                "message": errors[0]["path"] + ": " + errors[0]["message"], "issues": errors})
+        return value
+
     @model_validator(mode="after")
-    def check(self):
-        if self.cca_source is not None:
-            from .cca import validate_codebook
-            validate_codebook(self.cca_source)
-        labels = [c.label for c in self.categories]
-        if len(labels) != len(set(labels)):
-            raise ValueError("Labels must be unique")
-        if self.mode == "single" and self.allow_empty:
-            raise ValueError("Empty labels are only allowed for multi-label tasks; otherwise define a fallback category")
-        if self.default_label is not None and self.default_label not in labels:
-            raise ValueError("Default label must be one of the task categories")
-        for ex in self.examples:
-            validate_labels(ex.labels, self)
+    def check_defaults(self):
+        if self.default_label is not None and self.default_label not in {c.id for c in self.categories}:
+            from pydantic_core import PydanticCustomError
+            raise PydanticCustomError("fallback_category", "Default label must be a category ID", {
+                "issues": [{"path": "/execution_defaults/default_label", "message": "Choose an existing category ID."}]})
         return self
+
+    @property
+    def name(self): return self.codebook["title"]
+    @property
+    def mode(self): return "single" if self.codebook["task"]["classification_mode"] == "single_label" else "multi"
+    @property
+    def instructions(self): return self.codebook["task"]["instructions"]
+    @property
+    def unit_of_analysis(self): return self.codebook["task"]["unit_of_analysis"]
+    @property
+    def context(self): return self.codebook["task"].get("context", "")
+    @property
+    def categories(self): return [Category(**c) for c in self.codebook["task"]["categories"]]
+    @property
+    def examples(self): return self.codebook.get("examples", [])
+    @property
+    def rationale(self): return self.execution_defaults.rationale
+    @property
+    def alternatives(self): return self.execution_defaults.alternatives
+    @property
+    def confidence(self): return self.execution_defaults.confidence
+    @property
+    def evidence(self): return self.execution_defaults.evidence
+    @property
+    def thinking(self): return self.execution_defaults.thinking
+    @property
+    def default_label(self): return self.execution_defaults.default_label
 
 
 def validate_labels(labels, task):
     if not isinstance(labels, list) or any(not isinstance(x, str) for x in labels):
         raise ValueError("labels must be a list of strings")
-    allowed = {c.label for c in task.categories}
+    allowed = {c.id for c in task.categories}
     if any(x not in allowed for x in labels) or len(labels) != len(set(labels)):
         raise ValueError("Unknown or duplicate labels")
     if task.mode == "single" and len(labels) != 1:
         raise ValueError("Single-label tasks require exactly one label")
-    if not labels and not task.allow_empty:
+    if not labels:
         raise ValueError("At least one label is required")
 
 

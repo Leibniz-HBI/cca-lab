@@ -7,25 +7,133 @@ let ccaImportBusy=false,ccaImportMessage='';
 function ccaStatus(message){ccaImportMessage=message;const el=$('#cca-import-status');if(el)el.textContent=message;}
 const baseRenderTasks=renderTasks;
 renderTasks=function(){baseRenderTasks();$('#view').insertAdjacentHTML('afterbegin','<div class="actions spaced"><button data-action="cca-import">Import CCA codebook JSON</button><span class="small">CCA 0.1 · category IDs become output labels</span><span id="cca-import-status" role="status"></span></div>');ccaStatus(ccaImportMessage);$('[data-action=cca-import]').disabled=ccaImportBusy;document.querySelectorAll('[data-action="download-task"]').forEach(b=>b.insertAdjacentHTML('afterend',`<button data-action="cca-export" data-id="${b.dataset.id}">CCA JSON ↓</button>`));};
-const baseCategoryHTML=categoryHTML;
-categoryHTML=function(c={label:'',definition:'',examples:[]}){
- const extra={display_label:c.display_label||'',inclusion_criteria:c.inclusion_criteria||[],exclusion_criteria:c.exclusion_criteria||[],coding_notes:c.coding_notes||'',aliases:c.aliases||[]};
- return baseCategoryHTML(c).slice(0,-6)+`<details><summary>Category name, criteria and notes</summary>${area('CCA category details (JSON)','cca_category',JSON.stringify(extra,null,2),'Label is the machine-facing category ID; display_label is the human-facing name.')}</details></div>`;
+'use strict';
+function newCodebookId(){
+ if(crypto.randomUUID)return 'urn:uuid:'+crypto.randomUUID();
+ const bytes=crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+ const h=[...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');
+ return 'urn:uuid:'+h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
+}
+const CCA_SCHEMA='https://cca-schema.org/schema/0.1/schema.json';
+function ccaField(label,name,value='',type='text',required=false){
+ return '<label>'+esc(label)+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'" '+(required?'required':'')+'></label>';
+}
+function ccaArea(label,name,value='',required=false){
+ return '<label>'+esc(label)+'<textarea name="'+name+'" '+(required?'required':'')+'>'+esc(value)+'</textarea></label>';
+}
+function listItems(key,values=[],label=key){
+ return '<div class="cca-list" data-key="'+key+'"><div class="section-title"><strong>'+esc(label)+'</strong><button type="button" data-action="cca-add-item">+ Add</button></div><div class="cca-items">'+values.map(v=>listItem(v)).join('')+'</div></div>';
+}
+function listItem(value=''){return '<div class="cca-list-item"><textarea aria-label="List entry" required>'+esc(value)+'</textarea><button type="button" data-action="cca-remove-item" aria-label="Remove list entry">Remove</button></div>';}
+function referenceHTML(r={}){
+ return '<div class="cca-reference"><div class="category-head"><strong>Reference</strong><button type="button" data-action="cca-remove-reference">Remove</button></div>'+ccaArea('Citation','citation',r.citation||'',true)+ccaField('DOI (optional)','doi',r.doi||'')+'</div>';
+}
+function exampleHTML(ex={}){
+ return '<div class="cca-example"><div class="category-head"><strong>Coding example</strong><button type="button" data-action="cca-remove-example">Remove</button></div>'+ccaArea('Example text','example_text',ex.text||'',true)+'<label>Category IDs<select name="example_labels" multiple required data-selected="'+esc(JSON.stringify(ex.labels||[]))+'"></select><small>Select all applicable categories. Use Ctrl/Cmd for multiple labels.</small></label>'+ccaArea('Context (optional)','example_context',ex.context||'')+ccaArea('Explanation (optional)','explanation',ex.explanation||'')+'</div>';
+}
+categoryHTML=function(c={}){
+ return '<div class="category cca-category"><div class="category-head"><strong>Category</strong><button type="button" data-action="remove-category">Remove</button></div><div class="grid">'+ccaField('Category ID','cat-id',c.id||'','text',true)+ccaField('Label / display name','cat-label',c.label||'','text',true)+'</div>'+ccaArea('Definition','cat-definition',c.definition||'',true)+'<details><summary>Criteria, aliases and coding notes</summary>'+listItems('inclusion_criteria',c.inclusion_criteria||[],'Inclusion criteria')+listItems('exclusion_criteria',c.exclusion_criteria||[],'Exclusion criteria')+listItems('aliases',c.aliases||[],'Aliases')+ccaArea('Coding notes','coding_notes',c.coding_notes||'')+'</details></div>';
 };
-const baseTaskEditor=taskEditor;
 taskEditor=function(id,seedSpec=null){
- baseTaskEditor(id,seedSpec);const t=state.tasks.find(x=>x.id===id)?.spec||seedSpec||{};edit.taskSpec=t;
- let metadata='';if(t.cca_source){const {task,examples,...m}=t.cca_source;metadata=area('CCA identity and provenance (JSON)','cca_metadata',JSON.stringify(m,null,2),'Update the codebook version after substantive edits. TextLab revisions are independent.');}
- $('#editor-body').insertAdjacentHTML('afterbegin',`<details><summary>CCA codebook context and provenance</summary>${input('Unit of analysis','unit_of_analysis',t.unit_of_analysis||'document','text','required')}${area('Permitted additional context','cca_context',t.context||'')}${metadata}<p class="small">CCA export contains the codebook. Runtime settings and output switches belong to native Task JSON. Empty-label tasks cannot be exported to CCA 0.1.</p></details>`);
+ const existing=state.tasks.find(t=>t.id===id),t=existing?.spec||seedSpec;
+ const c=t?.codebook||{$schema:CCA_SCHEMA,id:newCodebookId(),version:'0.1.0',title:'',description:'',task:{instructions:'',unit_of_analysis:'document',classification_mode:'single_label',categories:[{id:'',label:'',definition:''}]}};
+ const d=t?.execution_defaults||{},task=c.task;
+ openEditor(existing?'Edit task':'Create task',
+ '<section class="cca-section"><h3>Codebook identity</h3>'+ccaField('Title','title',c.title,'text',true)+ccaArea('Description','description',c.description,true)+'<div class="grid">'+ccaField('Stable codebook ID','codebook_id',c.id,'text',true)+ccaField('Codebook version','codebook_version',c.version,'text',true)+'</div><p class="small">CCA Schema 0.1 · Codebook version is independent of the automatic TextLab revision.</p><details><summary>Language, provenance and references</summary>'+ccaField('Language (optional, e.g. en or de)','language',c.language||'')+listItems('authors',c.authors||[],'Authors')+listItems('maintainers',c.maintainers||[],'Maintainers')+'<div class="grid">'+ccaField('Created date','created_at',c.created_at||'','date')+ccaField('Modified date','modified_at',c.modified_at||'','date')+'</div><div class="section-title"><strong>References</strong><button type="button" data-action="cca-add-reference">+ Reference</button></div><div id="cca-references">'+(c.references||[]).map(referenceHTML).join('')+'</div></details></section>'+
+ '<section class="cca-section"><h3>Coding instructions</h3>'+ccaArea('General coding instructions','instructions',task.instructions,true)+'<div class="grid">'+ccaField('Unit of analysis','unit_of_analysis',task.unit_of_analysis,'text',true)+select('Classification mode','classification_mode',option('single_label','Single label',task.classification_mode)+option('multi_label','Multi-label',task.classification_mode))+'</div>'+ccaArea('Permitted additional context (optional)','context',task.context||'')+'</section>'+
+ '<section class="cca-section"><div class="section-title"><h3>Categories</h3><button type="button" data-action="add-category">+ Category</button></div><p class="small">Predictions use category IDs. Define an explicit category for “none applicable” if your codebook requires it.</p><div id="categories">'+task.categories.map(categoryHTML).join('')+'</div></section>'+
+ '<section class="cca-section"><div class="section-title"><h3>Examples</h3><button type="button" data-action="cca-add-example">+ Example</button></div><div id="cca-examples">'+(c.examples||[]).map(exampleHTML).join('')+'</div></section>'+
+ '<details class="cca-section"><summary>TextLab execution defaults</summary><p class="small">These settings are stored separately from the CCA codebook.</p>'+[['rationale','Generate rationale'],['evidence','Extract verbatim evidence'],['alternatives','Compare candidate interpretations'],['confidence','Self-reported confidence (uncalibrated)']].map(([k,label])=>'<label><input type="checkbox" name="'+k+'" '+(d[k]?'checked':'')+'>'+label+'</label>').join('')+thinkingSelect('thinking',d.thinking||'default')+'<label>Fallback category after failed LLM attempts<select name="default_label" data-selected="'+esc(d.default_label||'')+'"></select><small>Fallback results remain flagged as errors.</small></label></details>'+
+ '<details class="cca-section"><summary>Prompt preview</summary><button type="button" data-action="prompt-preview">Generate preview</button><pre id="prompt-preview" hidden></pre></details>','task',id);
+ edit.revision=existing?.revision;edit.originalCodebook=structuredClone(c);
+ syncCategoryChoices();indexCCAFields();
+ $('#editor').scrollTop=0;$('[name=title]').focus({preventScroll:true});
 };
-const baseReadTask=readTask;
+function syncCategoryChoices(){
+ if(edit?.kind!=='task')return;
+ const categories=[...document.querySelectorAll('.cca-category')].map(el=>({id:el.querySelector('[name=cat-id]').value,label:el.querySelector('[name=cat-label]').value})).filter(c=>c.id);
+ document.querySelectorAll('[name=example_labels]').forEach(el=>{
+  const selected=el.dataset.selected!==undefined?JSON.parse(el.dataset.selected):[...el.selectedOptions].map(o=>o.value);delete el.dataset.selected;
+  const ids=new Set(categories.map(c=>c.id));
+  el.innerHTML=categories.map(c=>'<option value="'+esc(c.id)+'" '+(selected.includes(c.id)?'selected':'')+'>'+esc(c.id+' · '+c.label)+'</option>').join('')+selected.filter(id=>!ids.has(id)).map(id=>'<option selected value="'+esc(id)+'">'+esc(id+' (missing category)')+'</option>').join('');
+  el.size=Math.max(2,Math.min(6,el.options.length));
+ });
+ const fallback=$('[name=default_label]');if(fallback){
+  const value=fallback.dataset.selected!==undefined?fallback.dataset.selected:fallback.value;delete fallback.dataset.selected;
+  fallback.innerHTML=option('','No fallback',value)+categories.map(c=>option(c.id,c.id+' · '+c.label,value)).join('')+(value&&!categories.some(c=>c.id===value)?option(value,value+' (missing category)',value):'');
+ }
+}
+function indexCCAFields(){
+ const set=(el,path)=>{if(el)el.dataset.ccaPath=path;};
+ const fields={title:'/title',description:'/description',codebook_id:'/id',codebook_version:'/version',language:'/language',created_at:'/created_at',modified_at:'/modified_at',instructions:'/task/instructions',unit_of_analysis:'/task/unit_of_analysis',classification_mode:'/task/classification_mode',context:'/task/context',default_label:'/execution_defaults/default_label'};
+ Object.entries(fields).forEach(([name,path])=>set($('[name='+name+']'),path));
+ set($('#categories'),'/task/categories');
+ document.querySelectorAll('.cca-category').forEach((el,i)=>{
+  const base='/task/categories/'+i;
+  for(const [name,key] of [['cat-id','id'],['cat-label','label'],['cat-definition','definition'],['coding_notes','coding_notes']])set(el.querySelector('[name='+name+']'),base+'/'+key);
+  el.querySelectorAll('.cca-list').forEach(list=>{set(list,base+'/'+list.dataset.key);list.querySelectorAll('textarea').forEach((input,j)=>set(input,base+'/'+list.dataset.key+'/'+j));});
+ });
+ for(const key of ['authors','maintainers']){const list=$('.cca-list[data-key='+key+']');set(list,'/'+key);list.querySelectorAll('textarea').forEach((el,i)=>set(el,'/'+key+'/'+i));}
+ document.querySelectorAll('.cca-example').forEach((el,i)=>{for(const [name,key] of [['example_text','text'],['example_labels','labels'],['example_context','context'],['explanation','explanation']])set(el.querySelector('[name='+name+']'),'/examples/'+i+'/'+key);});
+ document.querySelectorAll('.cca-reference').forEach((el,i)=>{for(const key of ['citation','doi'])set(el.querySelector('[name='+key+']'),'/references/'+i+'/'+key);});
+}
+function readList(el,key){return [...el.querySelectorAll('.cca-list[data-key='+key+'] textarea')].map(e=>e.value);}
 readTask=function(){
- const result=baseReadTask(),original=edit.taskSpec||{};
- result.unit_of_analysis=$('[name=unit_of_analysis]').value;result.context=$('[name=cca_context]').value;
- result.categories=result.categories.map((c,i)=>{const x=JSON.parse(document.querySelectorAll('[name=cca_category]')[i].value);if(Object.keys(x).some(k=>!['display_label','inclusion_criteria','exclusion_criteria','coding_notes','aliases'].includes(k)))throw Error('Unknown CCA category detail.');return {...c,...x};});
- if(original.cca_source){const metadata=JSON.parse($('[name=cca_metadata]').value);if('task' in metadata||'examples' in metadata)throw Error('Edit task content in its own fields.');result.cca_source={...metadata,task:original.cca_source.task,...('examples' in original.cca_source?{examples:original.cca_source.examples}:{})};}
- return result;
+ indexCCAFields();const form=$('#editor-form'),value=name=>form.querySelector('[name='+name+']').value;
+ const original=edit.originalCodebook;
+ const c={$schema:original.$schema,id:value('codebook_id'),version:value('codebook_version'),title:value('title'),description:value('description'),
+ task:{instructions:value('instructions'),unit_of_analysis:value('unit_of_analysis'),classification_mode:value('classification_mode'),categories:[]}};
+ for(const k of ['language','created_at','modified_at'])if(value(k))c[k]=value(k);
+ for(const k of ['authors','maintainers']){const values=readList(form,k);if(values.length)c[k]=values;}
+ if(value('context'))c.task.context=value('context');
+ c.task.categories=[...document.querySelectorAll('.cca-category')].map(el=>{
+  const v=name=>el.querySelector('[name='+name+']').value,out={id:v('cat-id'),label:v('cat-label'),definition:v('cat-definition')};
+  for(const key of ['inclusion_criteria','exclusion_criteria','aliases']){const values=readList(el,key);if(values.length)out[key]=values;}
+  if(v('coding_notes'))out.coding_notes=v('coding_notes');return out;
+ });
+ const examples=[...document.querySelectorAll('.cca-example')].map(el=>{
+  const v=name=>el.querySelector('[name='+name+']').value,out={text:v('example_text'),labels:[...el.querySelector('[name=example_labels]').selectedOptions].map(o=>o.value)};
+  if(v('example_context'))out.context=v('example_context');if(v('explanation'))out.explanation=v('explanation');return out;
+ });
+ if(examples.length||'examples' in original)c.examples=examples;
+ const references=[...document.querySelectorAll('.cca-reference')].map(el=>{const out={citation:el.querySelector('[name=citation]').value},doi=el.querySelector('[name=doi]').value;if(doi)out.doi=doi;return out;});
+ if(references.length||'references' in original)c.references=references;
+ const execution_defaults={thinking:value('thinking'),default_label:value('default_label')||null};
+ for(const k of ['rationale','evidence','alternatives','confidence'])execution_defaults[k]=form.querySelector('[name='+k+']').checked;
+ return {codebook:c,execution_defaults};
 };
+function showCCAErrors(error){
+ document.querySelectorAll('.cca-field-error').forEach(el=>el.remove());
+ document.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));
+ indexCCAFields();
+ const issues=(error.details||[]).flatMap(e=>e.ctx?.issues||[{path:'/'+e.loc.filter(x=>!['body','codebook'].includes(x)).join('/'),message:e.msg}]);
+ let first;
+ for(const issue of issues){
+  let path=issue.path,el;
+  while(path){el=[...document.querySelectorAll('[data-cca-path]')].find(e=>e.dataset.ccaPath===path);if(el)break;path=path.slice(0,path.lastIndexOf('/'));}
+  if(!el)continue;
+  el.setAttribute('aria-invalid','true');for(let p=el.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;
+  const message=document.createElement('small');message.className='cca-field-error error';message.textContent=issue.message;
+  el.insertAdjacentElement('afterend',message);first ||=el;
+ }
+ if(first){first.scrollIntoView({block:'center'});first.focus();}
+}
+document.addEventListener('click',e=>{
+ const button=e.target.closest('[data-action]');if(!button||edit?.kind!=='task'||!$('#editor').open)return;
+ const a=button.dataset.action;
+ if(a==='cca-add-item')button.closest('.cca-list').querySelector('.cca-items').insertAdjacentHTML('beforeend',listItem());
+ if(a==='cca-remove-item')button.closest('.cca-list-item').remove();
+ if(a==='cca-add-example')$('#cca-examples').insertAdjacentHTML('beforeend',exampleHTML());
+ if(a==='cca-remove-example')button.closest('.cca-example').remove();
+ if(a==='cca-add-reference')$('#cca-references').insertAdjacentHTML('beforeend',referenceHTML());
+ if(a==='cca-remove-reference')button.closest('.cca-reference').remove();
+ if(['add-category','remove-category','cca-add-example'].includes(a))syncCategoryChoices();
+ indexCCAFields();
+});
+document.addEventListener('change',e=>{if(edit?.kind==='task'&&['cat-id','cat-label'].includes(e.target.name))syncCategoryChoices();});
+document.addEventListener('invalid',e=>{
+ for(let p=e.target.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;
+},true);
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-action]');if(!b)return;
  try{

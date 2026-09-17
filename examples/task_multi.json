@@ -1,24 +1,56 @@
 {
-  "name": "Zustimmung und Sicherheitsaspekte",
-  "instructions": "Kodiere ausdrückliche Zustimmung zur Maßnahme (SUPPORT) und inhaltliche Aussagen zur Sicherheit (SAFETY). Eine bloße verneinte Nennung eines Aspekts zählt nicht als Beleg. Mehrere Kategorien können zutreffen.",
-  "mode": "multi",
-  "allow_empty": true,
-  "rationale": false,
-  "evidence": false,
-  "categories": [
-    {
-      "label": "SUPPORT",
-      "definition": "Ausdrückliche Befürwortung der Maßnahme.",
-      "examples": [
-        "Die Maßnahme ist eine gute Idee."
+  "codebook": {
+    "$schema": "https://cca-schema.org/schema/0.1/schema.json",
+    "id": "textlab-example-task-multi",
+    "version": "1.0.0",
+    "title": "Zustimmung und Sicherheitsaspekte",
+    "description": "Beispielkodierbuch für Zustimmung und Sicherheitsaspekte.",
+    "language": "de",
+    "task": {
+      "instructions": "Kodiere ausdrückliche Zustimmung zur Maßnahme (SUPPORT) und inhaltliche Aussagen zur Sicherheit (SAFETY). Eine bloße verneinte Nennung eines Aspekts zählt nicht als Beleg. Mehrere Kategorien können zutreffen. Wenn keine dieser Kategorien zutrifft, weise ausschließlich NONE zu.",
+      "unit_of_analysis": "document",
+      "classification_mode": "multi_label",
+      "categories": [
+        {
+          "id": "SUPPORT",
+          "label": "Zustimmung",
+          "definition": "Ausdrückliche Befürwortung der Maßnahme."
+        },
+        {
+          "id": "SAFETY",
+          "label": "Sicherheit",
+          "definition": "Inhaltliche Aussage oder Forderung zur Sicherheit der Maßnahme."
+        },
+        {
+          "id": "NONE",
+          "label": "Kein zutreffender Aspekt",
+          "definition": "Weder Zustimmung noch ein inhaltlicher Sicherheitsaspekt; nicht gemeinsam mit anderen Kategorien vergeben."
+        }
       ]
     },
-    {
-      "label": "SAFETY",
-      "definition": "Inhaltliche Aussage oder Forderung zur Sicherheit der Maßnahme.",
-      "examples": [
-        "Die Sicherheit muss überprüft werden."
-      ]
-    }
-  ]
+    "examples": [
+      {
+        "text": "Die Maßnahme ist eine gute Idee.",
+        "labels": [
+          "SUPPORT"
+        ]
+      },
+      {
+        "text": "Die Sicherheit muss überprüft werden.",
+        "labels": [
+          "SAFETY"
+        ]
+      },
+      {
+        "text": "Dieser Beitrag enthält weder Zustimmung noch einen Sicherheitsaspekt.",
+        "labels": [
+          "NONE"
+        ]
+      }
+    ]
+  },
+  "execution_defaults": {
+    "rationale": false,
+    "evidence": false
+  }
 }

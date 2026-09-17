@@ -19,7 +19,7 @@ function renderWorkflowContext(){
 }
 function renderResults(){
  const terminal=['completed','completed_with_errors','cancelled'];
- const evaluations=(state.evaluations||[]).filter(e=>e.report_ready).map(e=>({...e,kind:'evaluation',caption:e.task_snapshot.task.name,action:'evaluation-detail'}));
+ const evaluations=(state.evaluations||[]).filter(e=>e.report_ready).map(e=>({...e,kind:'evaluation',caption:e.task_snapshot.task.codebook.title,action:'evaluation-detail'}));
  const predictions=(state.predictions||[]).filter(p=>p.artifact_status==='ready').map(p=>({...p,kind:'prediction',caption:`${p.runs.length} task / seed runs`,action:'prediction-detail'}));
  const jobs=state.jobs.filter(j=>!j.evaluation_id&&!j.prediction_id&&terminal.includes(j.status)).map(j=>({...j,kind:'job',caption:j.task_name,action:'job-detail'}));
  const all=[...evaluations,...predictions,...jobs].sort((a,b)=>b.created-a.created),rows=all.filter(r=>resultKind==='all'||r.kind===resultKind);
@@ -32,9 +32,9 @@ async function reuseEvaluation(jobId){
  if(!$('#editor').open||edit?.kind!=='prediction')return;
  edit.source=source;
  $('#dialog-title').textContent='Predict with evaluated configuration';
- const task=$('[name=task_ids]');task.innerHTML=option(s.task_id,s.task.name+' · evaluated revision '+s.task_revision,s.task_id);task.disabled=true;
+ const task=$('[name=task_ids]');task.innerHTML=option(s.task_id,s.task.codebook.title+' · evaluated revision '+s.task_revision,s.task_id);task.disabled=true;
  const profile=$('[name=profile_id]');profile.innerHTML=option('snapshot',s.profile.name+' · saved connection','snapshot');profile.disabled=true;
- $('[name=name]').value=(s.task.name+' · prediction').slice(0,200);
+ $('[name=name]').value=(s.task.codebook.title+' · prediction').slice(0,200);
  for(const [k,v] of Object.entries(s.query)){
   const field=$(`[name=${k}]`);if(field&&typeof v!=='object')field.value=v??'';
  }
@@ -49,7 +49,7 @@ async function reviseEvaluatedTask(id){
  const e=await api('/evaluations/'+id),s=e.task_snapshot,current=state.tasks.find(t=>t.id===s.task_id);
  closeWorkflowDetail();location.hash='tasks';
  if(current&&current.revision===s.task_revision)taskEditor(current.id);
- else taskEditor(null,{...s.task,name:(s.task.name+' (revised copy)').slice(0,200)});
+ else taskEditor(null,{...s.task,codebook:{...s.task.codebook,id:newCodebookId(),title:s.task.codebook.title+' (revised copy)'}});
  $('#editor-body').insertAdjacentHTML('afterbegin',`<div class="notice">Revising the coding instrument from evaluated revision ${s.task_revision}. ${current?.revision===s.task_revision?'Saving creates a new library revision.':'Saving creates a separate task from the evaluated snapshot.'} Existing evaluation snapshots and results remain unchanged.</div>`);
 }
 document.addEventListener('click',async event=>{

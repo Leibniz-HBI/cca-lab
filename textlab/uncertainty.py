@@ -127,12 +127,12 @@ def agreement_rows(runs,after=0,limit=None):
                     for r in db.execute('SELECT row_no,labels,status FROM results WHERE job_id=? AND row_no>? AND row_no<=?',(run['id'],cursor,records[-1]['row_no'])):
                         by_row[r['row_no']].append(dict(r))
             for record in records:
-                yield {'group_id':key,'task_id':s['task_id'],'task_name':s['task']['name'],
-                       'configuration':s.get('experiment_name',s['task']['name']),'temperature':s['query']['temperature'],
+                yield {'group_id':key,'task_id':s['task_id'],'task_name':s['task']['codebook']['title'],
+                       'configuration':s.get('experiment_name',s['task']['codebook']['title']),'temperature':s['query']['temperature'],
                        'model':s['query']['model'],'dataset_id':first['dataset_id'],'row_no':record['row_no'],
                        'seeds':[r['snapshot']['query'].get('seed') for r in eligible],
                        'cancelled_runs':cancelled,'duplicate_seed_runs':duplicates,
-                       **agreement_summary(by_row[record['row_no']],[c['label'] for c in s['task']['categories']],len(eligible))}
+                       **agreement_summary(by_row[record['row_no']],[c['id'] for c in s['task']['codebook']['task']['categories']],len(eligible))}
                 emitted+=1
             cursor=records[-1]['row_no']
 

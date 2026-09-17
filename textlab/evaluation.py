@@ -118,11 +118,12 @@ def build_report(evaluation_id):
         with connect() as db:
             common.intersection_update(r[0] for r in db.execute("SELECT row_no FROM results WHERE job_id=? AND status IN ('ok','fallback')",(run['id'],)))
     task_snapshot = json.loads(evaluation['task_snapshot'])
-    task = task_snapshot['task']
-    labels = [c['label'] for c in task['categories']]
-    report = {'schema_version':2,'framework_version':'0.8.1','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
+    from .models import Task
+    task = Task.model_validate(task_snapshot['task'])
+    labels = [c.id for c in task.categories]
+    report = {'schema_version':2,'framework_version':'0.9.0','evaluation_id':evaluation_id,'name':evaluation['name'],'generated':time.time(),
               'task_snapshot':task_snapshot,'gold':{'id':gold_set['id'],'total':len(gold),'spec':json.loads(gold_set['spec']),'label_counts':json.loads(gold_set['label_counts'])},
-              'labels':labels,'mode':task['mode'],'policies':POLICIES,'common_n':len(common),'scopes':{'valid':{'runs':[]},'common':{'runs':[]}}}
+              'labels':labels,'mode':task.mode,'policies':POLICIES,'common_n':len(common),'scopes':{'valid':{'runs':[]},'common':{'runs':[]}}}
     for run in runs:
         with connect() as db:
             predictions = {r['row_no']:json.loads(r['labels']) for r in db.execute("SELECT row_no,labels FROM results WHERE job_id=? AND status IN ('ok','fallback') ORDER BY row_no",(run['id'],))}
@@ -132,7 +133,7 @@ def build_report(evaluation_id):
                 'coverage':(len(predictions)-run['fallback_count'])/len(gold),'output_coverage':len(predictions)/len(gold),'accuracy_all':exact_all/len(gold),
                 'runtime':runtime_metrics(run),'requests':run['requests'],'prompt_tokens':run['prompt_tokens'],'completion_tokens':run['completion_tokens']}
         for scope, rows in (('valid',list(predictions)),('common',sorted(common.intersection(predictions)))):
-            result = score([gold[row] for row in rows],[predictions[row] for row in rows],labels,task['mode'])
+            result = score([gold[row] for row in rows],[predictions[row] for row in rows],labels,task.mode)
             from .uncertainty import run_confidence
             report['scopes'][scope]['runs'].append({**item,**result,'confidence':run_confidence(run['id'],gold,set(rows))})
     report['policies']['confidence']='Uncalibrated self-reported probability of exact label-set agreement with gold; not codebook fit. Confidence excludes failed, fallback, missing-score and (from groups) cancelled responses. Brier and 10-bin ECE are lower-is-better; error AUROC/AP are undefined with only one outcome. Group metrics and curves average runs with sample SD; empty bins are omitted per run. Risk accepts whole confidence ties; coverage is conditional on valid scored outputs, with 20 target levels and actual mean achieved coverage plotted. No calibration model is fitted.'

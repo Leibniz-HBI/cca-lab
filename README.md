@@ -1,6 +1,12 @@
-# TextLab 0.8.1
+# TextLab 0.9.0
 
-Patch: CCA import survives background refresh, with persistent error feedback and request-correlated application diagnostics. See [LOGGING.md](LOGGING.md).
+## New in 0.9 — CCA schema-first tasks
+
+CCA Schema 0.1 is now the authoritative coding instrument throughout storage, editing, prompts, snapshots and exports. Create task provides native form controls for identity, provenance, coding instructions, categories, criteria, references and examples. Execution defaults are separate; validation errors identify the affected fields. Prompt preview has its own collapsible section.
+
+**Fresh installation required:** this release intentionally provides no migration from the earlier task format. Use an empty data directory or a new Docker volume. Import CCA codebooks into the new instance. See [CCA.md](CCA.md) and [UPGRADE.md](UPGRADE.md).
+
+CCA import survives background refresh, with persistent feedback and request-correlated diagnostics. See [LOGGING.md](LOGGING.md).
 
 ## New in 0.8
 
@@ -41,7 +47,7 @@ See [REPETITIONS.md](REPETITIONS.md) for workflow, statistical conventions and A
 - Evaluation runtime comparison: active time, elapsed time, document throughput, successful document throughput, mean per-document latency and output-token throughput, alongside quality metrics.
 - **Prediction** workspace: select one dataset and multiple tasks. Each task produces an independent job. The worker saves combined CSV, JSON, JSONL, Parquet and manifest files on disk for repeated downloads.
 
-For existing installations, follow [UPGRADE.md](UPGRADE.md). Evaluation details are in [EVALUATION.md](EVALUATION.md), and verification evidence is in [VALIDATION.md](VALIDATION.md).
+For fresh installation requirements, see [UPGRADE.md](UPGRADE.md). Evaluation details are in [EVALUATION.md](EVALUATION.md), and verification evidence is in [VALIDATION.md](VALIDATION.md).
 
 ## Start with Docker
 
@@ -82,7 +88,7 @@ Both processes must share `TEXTLAB_DATA` and API-key environment variables. Comp
 
 ## First prediction
 
-1. **Define tasks → New task:** define categories, instructions, examples and an ambiguity rule. Choose single-label or multi-label classification. Configure rationale, exact evidence quotes and thinking.
+1. **Define tasks → New task:** create a CCA codebook with title, description, categories, instructions and examples. Choose single-label or multi-label classification. Configure rationale, exact evidence quotes and thinking.
 2. **Configuration → LLM connections → New connection:** configure your model server. Use **List models** to check it. The demo provider always returns the first category and is only a plumbing test.
 3. **Prepare data → Upload CSV:** choose delimiter and encoding; wait for **Ready**.
 4. **Run predictions → New prediction:** select the dataset, text column, one or more tasks, connection and model. Use Ctrl/Cmd to select multiple tasks. Advanced parameters can override task settings; by default each task retains its own settings.
@@ -106,7 +112,7 @@ The profile stores the **name** of an API-key environment variable, not its valu
 
 ## Task and result schema
 
-Tasks include name, description, mode, unique category labels and definitions, category-specific examples, global multi-label examples, instructions, ambiguity handling, optional empty multi-label selection, rationale, evidence and thinking. For single-label tasks, define a fallback category if needed. Include coding-unit definitions, exclusions and conflict-resolution rules in the instructions.
+Tasks contain two objects: a standards-compliant `codebook` and `execution_defaults`. The codebook holds identity, version, description, instructions, unit of analysis, classification mode, categories and examples. Category `id` is the prediction value; `label` is the display name. All examples are standard top-level CCA examples. Rationale, evidence, confidence, alternative interpretations, thinking and fallback settings belong to execution defaults. Empty label assignments are not supported; define an explicit category if needed. Include ambiguity handling in coding instructions or category notes. See [CCA.md](CCA.md).
 
 When evidence and rationale are enabled (candidate comparison and confidence disabled):
 
@@ -120,7 +126,7 @@ When evidence and rationale are enabled (candidate comparison and confidence dis
 
 Unknown or duplicate labels, invalid cardinality, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with any known codebook label, including competing categories. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
 
-Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Task JSON can be imported through `POST /api/tasks`; there is no separate JSON-import UI.
+Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Native TextLab task JSON can be imported through `POST /api/tasks`. The file-import UI accepts standard CCA codebook JSON.
 
 ## Prediction storage and download formats
 

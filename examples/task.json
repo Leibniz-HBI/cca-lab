@@ -1,33 +1,56 @@
 {
-  "name": "Position zur Maßnahme",
-  "description": "Beispielkodierbuch; Untersuchungsgegenstand vor produktivem Einsatz konkretisieren.",
-  "instructions": "Klassifiziere die im Text ausgedrückte Position zur untersuchten Maßnahme. Unterscheide Zustimmung, Ablehnung und fehlende eindeutige Position. Bewerte die Aussage des Textes, nicht deine eigene Haltung.",
-  "mode": "single",
-  "categories": [
-    {
-      "label": "FOR",
-      "definition": "Der Text befürwortet die Maßnahme.",
-      "examples": [
-        "Wir sollten diese Maßnahme unterstützen."
+  "codebook": {
+    "$schema": "https://cca-schema.org/schema/0.1/schema.json",
+    "id": "textlab-example-task",
+    "version": "1.0.0",
+    "title": "Position zur Maßnahme",
+    "description": "Beispielkodierbuch; Untersuchungsgegenstand vor produktivem Einsatz konkretisieren.",
+    "language": "de",
+    "task": {
+      "instructions": "Klassifiziere die im Text ausgedrückte Position zur untersuchten Maßnahme. Unterscheide Zustimmung, Ablehnung und fehlende eindeutige Position. Bewerte die Aussage des Textes, nicht deine eigene Haltung.\n\nVerwende NO bei fehlender eindeutiger Position. Schließe aus einer bloßen Erwähnung nicht auf Zustimmung.",
+      "unit_of_analysis": "document",
+      "classification_mode": "single_label",
+      "categories": [
+        {
+          "id": "FOR",
+          "label": "Zustimmung",
+          "definition": "Der Text befürwortet die Maßnahme."
+        },
+        {
+          "id": "AGAINST",
+          "label": "Ablehnung",
+          "definition": "Der Text lehnt die Maßnahme ab."
+        },
+        {
+          "id": "NO",
+          "label": "Keine eindeutige Position",
+          "definition": "Keine eindeutige Position erkennbar, rein beschreibend oder unauflösbar widersprüchlich."
+        }
       ]
     },
-    {
-      "label": "AGAINST",
-      "definition": "Der Text lehnt die Maßnahme ab.",
-      "examples": [
-        "Diese Maßnahme lehne ich entschieden ab."
-      ]
-    },
-    {
-      "label": "NO",
-      "definition": "Keine eindeutige Position erkennbar, rein beschreibend oder unauflösbar widersprüchlich.",
-      "examples": [
-        "Der Ausschuss hat heute über die Maßnahme beraten."
-      ]
-    }
-  ],
-  "examples": [],
-  "ambiguity_rule": "Verwende NO bei fehlender eindeutiger Position. Schließe aus einer bloßen Erwähnung nicht auf Zustimmung.",
-  "rationale": true,
-  "allow_empty": false
+    "examples": [
+      {
+        "text": "Wir sollten diese Maßnahme unterstützen.",
+        "labels": [
+          "FOR"
+        ]
+      },
+      {
+        "text": "Diese Maßnahme lehne ich entschieden ab.",
+        "labels": [
+          "AGAINST"
+        ]
+      },
+      {
+        "text": "Der Ausschuss hat heute über die Maßnahme beraten.",
+        "labels": [
+          "NO"
+        ]
+      }
+    ]
+  },
+  "execution_defaults": {
+    "rationale": true,
+    "evidence": false
+  }
 }

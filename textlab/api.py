@@ -34,7 +34,7 @@ async def lifespan(app):
     log.info("api_stopped")
 
 
-app = FastAPI(title="TextLab", version="0.8.1", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.9.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -124,7 +124,7 @@ def export_cca(id: str):
     from .cca import to_codebook
     from fastapi.responses import Response
     with connect() as db:row=get(db,'tasks',id)
-    try:doc=to_codebook(Task.model_validate_json(row['spec']),id,row['revision'])
+    try:doc=to_codebook(Task.model_validate_json(row['spec']))
     except ValueError as exc:raise HTTPException(422,str(exc)) from exc
     return Response(json.dumps(doc,ensure_ascii=False,indent=2,allow_nan=False),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="codebook-{id}.cca.json"'})
 
@@ -255,7 +255,7 @@ def job_row(row, detail=False):
     result["evaluation_id"] = snapshot.get("evaluation_id")
     result["prediction_id"] = snapshot.get("prediction_id")
     result["model"] = snapshot["query"]["model"]
-    result["task_name"] = snapshot["task"]["name"]
+    result["task_name"] = snapshot["task"]["codebook"]["title"]
     if detail:
         result["snapshot"] = snapshot
     from .runtime import runtime_metrics

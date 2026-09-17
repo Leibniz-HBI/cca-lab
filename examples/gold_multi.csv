@@ -1,5 +1,5 @@
 article_id,content,annotations
 001,"Die Maßnahme wird unterstützt und ihre Sicherheit betont.",SUPPORT|SAFETY
-002,"Dieser Beitrag enthält weder Zustimmung noch einen Sicherheitsaspekt.",
+002,"Dieser Beitrag enthält weder Zustimmung noch einen Sicherheitsaspekt.",NONE
 003,"Die Sicherheit muss überprüft werden.",SAFETY
 004,"Die Maßnahme ist eine gute Idee.",SUPPORT

@@ -13,7 +13,7 @@ Version 0.4 adds repeated seeds, grouped mean/SD tables, error-bar charts and ex
 7. Start the evaluation. Each configuration becomes a persistent job; variants run sequentially with their configured request concurrency.
 8. Choose **Compare** to inspect quality, runtime, class metrics, confusion matrices, predictions and downloads. Pause/resume/cancel applies to eligible child runs. Each child also has an individual result view.
 
-Gold/task modes and label cardinalities are validated before any jobs are created. Gold labels are not added to prompts. Keep manually authored few-shot examples separate from evaluation examples to avoid leakage.
+Gold/task modes and label cardinalities are validated before any jobs are created. CCA tasks require at least one category ID; empty registered gold assignments must be recoded to an explicit codebook category before evaluation. Gold labels are not added to prompts. Keep manually authored few-shot examples separate from evaluation examples to avoid leakage.
 
 Gold registrations preserve normalized labels and column mappings. Register again to change a mapping. Default maximum: 50,000 gold rows (`TEXTLAB_MAX_EVAL_ROWS`) and 50 base configurations and 500 expanded runs per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
 

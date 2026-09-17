@@ -1,4 +1,11 @@
-# TextLab 0.8.1 validation
+# TextLab 0.9.0 validation
+
+- 94 Python tests pass, including schema-first task creation/editing/preview, field error pointers, CCA round trips, fallback category IDs, whitespace/metadata retention and removal of old codebook limits.
+- Classification, model adapters, retries, seeds, evaluation metrics, reports, agreement and durable prediction exports are covered against canonical task snapshots.
+- Browser regression covers file-picker refresh survival, invalid import feedback, blank task creation, duplicate-ID field errors, category/example editing, both export types, prompt preview, and running a newly created task through evaluation and prediction with downloadable results. Desktop and mobile task-dialog screenshots were inspected.
+- This is a fresh-install release. No migration validation is claimed. No live LLM/GPU or new large-corpus benchmark was run.
+
+## Previous 0.8.1 validation
 
 83 Python tests pass, including import-log correlation and payload exclusion. Browser regression opens the actual file picker, forces two background refreshes, checks invalid-file feedback persists, then imports/edits/exports a valid codebook. No browser JavaScript errors or HTTP 5xx responses.
 

@@ -9,7 +9,7 @@ def resolved_task(task, query):
     obj = task.model_dump()
     for field in ("rationale", "evidence", "thinking"):
         if getattr(query, field) is not None:
-            obj[field] = getattr(query, field)
+            obj["execution_defaults"][field] = getattr(query, field)
     return Task.model_validate(obj)
 
 
@@ -20,7 +20,7 @@ def snapshot_for(task_row, profile_row, query, text_column):
     from .llm import PROMPT_PROTOCOL
     return {"prompt_protocol": PROMPT_PROTOCOL, "task": task.model_dump(), "task_id": task_row["id"], "task_revision": task_row["revision"],
             "profile": json.loads(profile_row["spec"]), "query": query.model_dump(), "text_column": text_column,
-            "framework_version": "0.8.1"}
+            "framework_version": "0.9.0"}
 
 
 def enqueue(db, name, dataset, snapshot, created=None):

@@ -1,57 +1,121 @@
-# CCA Schema 0.1 interchange — TextLab 0.8
+# CCA Schema 0.1 reference implementation — TextLab 0.9
 
-## Import
+The uploaded CCA Schema 0.1 JSON Schema is bundled unchanged at
+textlab/schemas/cca-schema-0.1.schema.json. It is the validation authority.
+No remote schema retrieval occurs. TextLab supplements Draft 2020-12 validation
+with the category-ID uniqueness and example-reference checks required by the standard.
 
-Open **Define tasks → Import CCA codebook JSON**, select a UTF-8 JSON file, and review the new task. UTF-8 BOM is accepted. Every import creates a new task; it never overwrites a task with a matching codebook ID. The task is saved immediately, and the editor opens for review.
+## Authoritative representation
 
-`POST /api/tasks/import-cca` accepts the raw codebook JSON with `Content-Type: application/json` (maximum 5 MiB). It returns the new task ID with HTTP 201. HTTP 422 reports invalid JSON, duplicate JSON keys, schema violations, duplicate category IDs, unknown example labels, or TextLab application limits. No partial task is created on failure.
+Every task is stored, returned by the task API and embedded in immutable job
+snapshots in this shape:
 
-Validation uses the exact supplied CCA 0.1 schema bundled at `textlab/schemas/cca-schema-0.1.schema.json`, including date/URI formats. Codebook `$schema` identifiers are retained as provided; no remote schema is fetched. This endpoint always validates against bundled CCA 0.1, not arbitrary schemas named by the document.
+```json
+{
+  "codebook": {
+    "$schema": "https://cca-schema.org/schema/0.1/schema.json",
+    "id": "sentiment-study",
+    "version": "0.1.0",
+    "title": "Sentiment",
+    "description": "Evaluative orientation of a document.",
+    "task": {
+      "instructions": "Assign the category that best describes the evaluative orientation.",
+      "unit_of_analysis": "document",
+      "classification_mode": "single_label",
+      "categories": [
+        {"id": "POS", "label": "Positive", "definition": "Expresses a favorable evaluation."},
+        {"id": "OTHER", "label": "Other", "definition": "Does not express a favorable evaluation."}
+      ]
+    },
+    "examples": [
+      {"text": "Excellent!", "labels": ["POS"], "explanation": "Explicit positive evaluation."}
+    ]
+  },
+  "execution_defaults": {
+    "rationale": false,
+    "evidence": false,
+    "alternatives": false,
+    "confidence": false,
+    "thinking": "default",
+    "default_label": null
+  }
+}
+```
 
-## Mapping
+There is no separate original-source copy or parallel editable task definition.
+Runtime accessors read the codebook directly. Standard category names and criteria
+appear in prompts, but outputs, gold assignments, evidence labels, fallbacks and
+metrics reference category IDs.
 
-| CCA field | TextLab behavior |
-|---|---|
-| `title`, `description` | Task name and description |
-| `task.instructions` | General coding instructions |
-| `task.unit_of_analysis`, `task.context` | Dedicated task fields, included in prompts |
-| `classification_mode` | Single-label or multi-label mode |
-| Category `id` | Machine-facing output label and gold-label identifier |
-| Category `label` | Human-facing display name included in the prompt |
-| Category definition, inclusion/exclusion criteria, coding notes, aliases | Preserved as structured category fields and included in prompts |
-| Example text and labels | Few-shot example using category IDs |
-| Example explanation | Example rationale |
-| Example context | Separate context field in the example's user message |
-| Identity, version, authors, maintainers, dates, language, references | Preserved in CCA source metadata and exported |
+## Editor
 
-The task editor's main **Label** input remains the machine-facing ID. Open **Category name, criteria and notes** to edit the display name and structured criteria. Open **CCA codebook context and provenance** to edit units, permitted context, and imported identity/provenance metadata. Additional few-shot examples are edited as JSON; their `context` property is retained.
+The editor starts with a blank title, description, instructions and one blank
+category. It generates a UUID codebook ID, version 0.1.0 and unit "document".
+Complete required fields before saving.
 
-Task context describes which contextual information may be used. It does not automatically retrieve additional dataset columns or preceding documents; include needed context in the selected input text. Example context is explicitly supplied with that example. The evidence-first protocol still requires quoted evidence to occur in the classified text itself.
+- Codebook identity: title, description, ID, version; optional language, authors,
+  maintainers, created/modified dates, citation/DOI references.
+- Coding instructions: instructions, unit, single-label/multi-label, permitted context.
+- Categories: ID, label, definition; expandable inclusion/exclusion criteria,
+  aliases and coding notes. Lists use individual text controls.
+- Examples: text, category-ID selection, optional context and explanation.
+  One list supports both single-label and multi-label examples.
+- TextLab execution defaults: optional output fields, thinking and fallback category.
+- Prompt preview: collapsed independently, generated from current unsaved values.
 
-Imports accept a one-category codebook, as permitted by CCA. Existing application bounds still apply (e.g. up to 200 categories/examples, 100 characters per output ID, 200 characters for task titles); schema-valid documents exceeding those limits are rejected explicitly instead of truncated. Whitespace normalization follows existing TextLab task validation; this is a semantic JSON interchange, not a byte-for-byte file archive.
+No ambiguity_rule exists. Put such decisions in instructions or coding_notes.
+No allow_empty switch exists in tasks. Use an explicit none-applicable category.
+Gold data may still be registered independently with empty labels, but such data
+cannot start an evaluation against a CCA task until recoded appropriately.
 
-## Export
+Saving, importing and prompt preview all run the same schema validation.
+Errors carry JSON pointers and appear beside affected editor fields.
+Changing or removing a referenced category leaves missing IDs visible for correction;
+it does not silently reassign example or fallback labels.
 
-Each task card offers **CCA JSON ↓** alongside native **JSON ↓**. `GET /api/tasks/{id}/export-cca` produces a validated CCA 0.1 codebook as an attachment.
+Codebook version and dates are researcher-controlled. Saving increments only
+the internal TextLab revision. Editing an evaluated instrument as a copy creates
+a new codebook ID.
 
-Export is rebuilt from current editable task fields, with preserved source identity/provenance. Editing a definition, category ID, criterion, context or example therefore updates the exported codebook. Imported optional metadata and optional empty `examples: []` are preserved. TextLab's internal revision counter is separate from the codebook's semantic version; update the CCA version and modified date in the provenance editor when appropriate.
+## Interchange and API
 
-For a native task without imported metadata:
+- POST /api/tasks: accepts {codebook, execution_defaults}; defaults are optional.
+- PUT /api/tasks/{id}?revision=N: same representation, optimistic revision check.
+- POST /api/tasks/preview: same representation; validates and generates messages.
+- POST /api/tasks/import-cca: accepts a bare CCA JSON codebook, creating a new task
+  with default execution settings.
+- GET /api/tasks/{id}/export-cca: exports exactly the current codebook.
+- "CCA JSON ↓" downloads only the standard codebook.
+- "TextLab task JSON ↓" downloads both codebook and execution defaults.
 
-- A stable ID `urn:textlab:task:<task ID>` is generated.
-- Codebook version is `0.1.<TextLab revision minus one>`.
-- Unit of analysis defaults to `document` and is editable.
-- Missing task description falls back to the task's actual instructions.
-- Human category names fall back to their existing output labels.
-- The ambiguity rule is appended to general coding instructions, so it is not lost on re-import.
-- Category-specific few-shot examples are converted to standard top-level examples.
+CCA import accepts UTF-8/BOM, rejects duplicate keys and limits uploads to 5 MiB.
+Schema-allowed values are not trimmed, renamed or silently truncated.
+The former limits of 200 categories/examples and 100-character category IDs no
+longer apply to codebooks. Model context limits and normal job/data resource limits
+remain separate execution constraints.
 
-CCA is a codebook interchange format. Model connections, seeds, thinking levels, output switches, fallback behavior and runtime settings are not CCA fields and are not exported. Use native Task JSON when those settings must be retained. Import uses normal TextLab defaults for them; it does not launch any jobs.
+An unedited import/export preserves the JSON data, including optional metadata
+and empty examples/references arrays; serialization whitespace/key ordering may differ.
+The editor preserves these optional arrays if originally present.
 
-CCA 0.1 cannot represent empty label assignments. Export of a task with **Allow empty selection** enabled is rejected with a clear error; it is not silently converted to a different coding policy.
+## Prompt and runtime semantics
 
-## Reproducibility and upgrade
+A category ID is distinct from its human-facing label and aliases.
+Inclusion/exclusion criteria and notes are included explicitly in the prompt.
+CCA example explanation supplies the few-shot rationale when rationale is enabled.
+Example context is sent separately from example text. Task context describes how
+context may be used; it does not automatically retrieve neighboring documents.
 
-Imported content is part of the task specification and immutable job snapshots, including criteria, context and CCA metadata. Existing jobs and reports retain their saved task specifications. Native task JSON remains supported.
+The examples_per_category query parameter now applies to the one CCA examples
+list. Examples are considered in codebook order. An example is included only when
+all its IDs are below the cap; a multi-label example is emitted once and counts
+towards every assigned ID. Zero disables all few-shot examples.
 
-Install the updated requirements or rebuild the containers to include JSON Schema validation dependencies. Restart API and worker and reload the browser. Database schema remains version 6: new fields are stored in the existing task/snapshot JSON. The attached standard itself is bundled unchanged.
+Query overrides modify only a snapshot's execution defaults, never the codebook
+or the saved task. The evidence-first output protocol is unchanged.
+
+## Bundled examples
+
+examples/task.cca.json and task_multi.cca.json can be imported in the UI.
+The corresponding task.json/task_multi.json files are native API payloads.
+The multi-label example and its gold CSV use an explicit NONE category.

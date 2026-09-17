@@ -10,7 +10,7 @@ All newly generated prompts use this fixed order, without an order setting:
 4. `labels`
 5. `self_reported_confidence`
 
-Existing switches for evidence, candidate comparison (`alternatives` in task JSON), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. The schema properties, required-field list, prompt instructions, few-shot examples and demo responses all use this order.
+Existing switches for evidence, candidate comparison (`execution_defaults.alternatives` in task JSON), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. The schema properties, required-field list, prompt instructions, few-shot examples and demo responses all use this order.
 
 Evidence entries associate an exact input quote with **any category in the codebook**, including categories not selected in the final decision. The prompt requests relevant supporting and conflicting signals before choosing a label. Quotes still require exact substring validation and receive character offsets. An unknown label or invented quote is rejected. Empty evidence is allowed when the decision concerns absent evidence.
 

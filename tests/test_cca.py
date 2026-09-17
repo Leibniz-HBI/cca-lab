@@ -27,16 +27,16 @@ def test_roundtrip_and_execution_semantics(client):
     doc=codebook();response=client.post('/api/tasks/import-cca',json=doc)
     assert response.status_code==201,response.text
     id=response.json()['id'];task=client.get('/api/tasks').json()[0]['spec']
-    assert task['categories'][0]['label']=='101' and task['categories'][0]['display_label']=='Positive'
+    assert task['codebook']==doc and set(task)=={'codebook','execution_defaults'}
     prompt=messages(Task(**task),Query(model='mock'),'Wonderful.')
     for value in ['sentence','Explicit praise','Irony','Check attribution.','Positive','Use the preceding sentence']:
         assert value in prompt[0]['content']
     assert json.loads(prompt[1]['content'])['context']=='The speaker welcomed the result.'
     assert json.loads(prompt[2]['content'])['labels']==['101']
     assert client.get('/api/tasks/'+id+'/export-cca').json()==doc
-    task['categories'][0]['definition']='Updated operational definition'
-    task['categories'][0]['inclusion_criteria']=['Updated criterion']
-    task['name']='Edited sentiment'
+    task['codebook']['task']['categories'][0]['definition']='Updated operational definition'
+    task['codebook']['task']['categories'][0]['inclusion_criteria']=['Updated criterion']
+    task['codebook']['title']='Edited sentiment'
     assert client.put('/api/tasks/'+id+'?revision=1',json=task).status_code==200
     exported=client.get('/api/tasks/'+id+'/export-cca').json()
     assert exported['task']['categories'][0]['definition']=='Updated operational definition'
@@ -64,23 +64,22 @@ def test_reject_invalid_without_partial_tasks(client,mutation):
 def test_multilabel_single_category_and_empty_policy(client):
     d=codebook();d['task']['classification_mode']='multi_label';d['examples'][0]['labels']=['101','102']
     task=from_codebook(d);assert task.mode=='multi'
-    assert to_codebook(task,'local',1)==d
-    task.allow_empty=True
-    with pytest.raises(ValueError,match='empty label'):to_codebook(task,'local',1)
+    assert to_codebook(task)==d
+    from textlab.models import validate_labels
+    with pytest.raises(ValueError,match='At least one'):validate_labels([],task)
     d=codebook();d['task']['categories']=d['task']['categories'][:1]
     assert client.post('/api/tasks/import-cca',json=d).status_code==201
 
 
 def test_native_export_and_import(client):
-    t=Task(name='Native',instructions='Classify.',categories=[{'label':'A','definition':'Alpha','examples':['a']},{'label':'B','definition':'Beta'}])
+    t=Task(codebook=codebook(),execution_defaults={"thinking":"high","evidence":True})
     id=client.post('/api/tasks',json=t.model_dump()).json()['id']
     out=client.get('/api/tasks/'+id+'/export-cca')
-    assert out.status_code==200
-    doc=out.json();validate_codebook(doc)
-    assert doc['description']=='Classify.' and doc['examples'][0]=={'text':'a','labels':['A']}
-    assert 'Ambiguity rule:' in doc['task']['instructions']
-    assert client.post('/api/tasks/import-cca',json=doc).status_code==201
-    assert client.get('/api/tasks/'+id+'/export-cca').json()['id']==doc['id']
+    assert out.status_code==200 and out.json()==codebook()
+    assert client.post('/api/tasks/import-cca',json=out.json()).status_code==201
+    saved=next(t for t in client.get('/api/tasks').json() if t['id']==id)
+    assert saved['spec']['execution_defaults']['thinking']=='high'
+    assert saved['spec']['codebook']==codebook()
 
 
 def test_bom_duplicate_keys_invalid_json_and_upload_limit(client):
@@ -107,3 +106,79 @@ def test_import_diagnostics_correlate_without_payload(client, caplog):
     assert "cca_import_rejected request_id=" + failed.headers["X-Request-ID"] in caplog.text
     assert "PRIVATE_CODEBOOK_CONTENT" not in caplog.text
     assert "PRIVATE_BAD_CONTENT" not in caplog.text
+
+
+@pytest.mark.parametrize('mutation,path',[
+    (lambda d:d.pop('description'), '/description'),
+    (lambda d:d.update(version='wrong'), '/version'),
+    (lambda d:d['task']['categories'][1].update(id='101'), '/task/categories/1/id'),
+    (lambda d:d['examples'][0].update(labels=['unknown']), '/examples/0/labels'),
+    (lambda d:d['examples'][0].update(labels=['101','102']), '/examples/0/labels'),
+    (lambda d:d.update(language='English'), '/language'),
+    (lambda d:d['task']['categories'][0].update(inclusion_criteria=['same','same']), '/task/categories/0/inclusion_criteria'),
+])
+def test_every_write_and_preview_validates_codebook(client, mutation, path):
+    valid={'codebook':codebook()}
+    id=client.post('/api/tasks',json=valid).json()['id']
+    invalid=copy.deepcopy(valid);mutation(invalid['codebook'])
+    for method,url in [('post','/api/tasks'),('put','/api/tasks/'+id+'?revision=1'),('post','/api/tasks/preview')]:
+        response=getattr(client,method)(url,json=invalid)
+        assert response.status_code==422,response.text
+        issues=[issue for e in response.json()['detail'] for issue in e.get('ctx',{}).get('issues',[])]
+        assert any(i['path']==path for i in issues),issues
+    saved=client.get('/api/tasks').json()
+    assert len(saved)==1 and saved[0]['revision']==1 and saved[0]['spec']['codebook']==codebook()
+
+
+def test_no_legacy_fields_and_fallback_uses_id(client):
+    for legacy in [{'name':'Old task','instructions':'Code','categories':[]},
+                   {'codebook':codebook(),'ambiguity_rule':'Rule'},
+                   {'codebook':codebook(),'cca_source':codebook()},
+                   {'codebook':codebook(),'execution_defaults':{'allow_empty':True}},
+                   {'codebook':codebook(),'execution_defaults':{'default_label':'Positive'}}]:
+        assert client.post('/api/tasks',json=legacy).status_code==422
+    assert client.post('/api/tasks',json={'codebook':codebook(),'execution_defaults':{'default_label':'101'}}).status_code==201
+
+
+def test_schema_roundtrip_is_lossless_and_not_limited_to_old_task_bounds(client):
+    doc=codebook()
+    doc['task']['categories']=[{'id':str(i),'label':'Category '+str(i),'definition':'Definition'} for i in range(205)]
+    doc['examples']=[{'text':'  Whitespace matters\n','labels':['101'],'explanation':'Explain\nwith lines'}]
+    doc['title']='Long title '+('x'*210)
+    created=client.post('/api/tasks',json={'codebook':doc,'execution_defaults':{'evidence':True}})
+    assert created.status_code==201,created.text
+    id=created.json()['id']
+    assert client.get('/api/tasks/'+id+'/export-cca').json()==doc
+    spec=client.get('/api/tasks').json()[0]['spec']
+    assert set(spec)=={'codebook','execution_defaults'}
+    assert spec['codebook']==doc
+
+
+def test_canonical_fewshot_cap_and_execution_override():
+    from textlab.jobs import resolved_task
+    d=codebook();d['task']['classification_mode']='multi_label'
+    d['examples']=[
+        {'text':'Both','labels':['101','102'],'explanation':'Mixed tone'},
+        {'text':'Positive','labels':['101']},
+        {'text':'Negative','labels':['102']}]
+    task=Task(codebook=d,execution_defaults={'rationale':True,'thinking':'high'})
+    resolved=resolved_task(task,Query(model='m',rationale=False,thinking='off'))
+    assert resolved.codebook==task.codebook and task.thinking=='high'
+    assert resolved.thinking=='off' and not resolved.rationale
+    prompt=messages(task,Query(model='m',examples_per_category=1),'Input')
+    assert len(prompt)==4 and json.loads(prompt[2]['content'])['labels']==['101','102']
+    assert len(messages(task,Query(model='m',examples_per_category=0),'Input'))==2
+
+
+def test_bundled_examples_are_ready_for_fresh_install():
+    from pathlib import Path
+    from textlab.models import validate_labels
+    import csv
+    folder=Path(__file__).parents[1]/'examples'
+    for name in ['task','task_multi']:
+        task=Task.model_validate_json((folder/(name+'.json')).read_text())
+        assert to_codebook(task)==json.loads((folder/(name+'.cca.json')).read_text())
+    task=Task.model_validate_json((folder/'task_multi.json').read_text())
+    with (folder/'gold_multi.csv').open() as source:
+        for row in csv.DictReader(source):
+            validate_labels(row['annotations'].split('|'),task)
