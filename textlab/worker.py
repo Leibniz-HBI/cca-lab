@@ -60,9 +60,9 @@ def save_import(did, batch, total):
 
 def save_result(job_id, row_no, result):
     with connect() as db:
-        inserted = db.execute("INSERT OR IGNORE INTO results(job_id,row_no,labels,rationale,status,error,raw,attempts,seconds,prompt_tokens,completion_tokens,evidence,thinking,attempt_outputs,error_count,self_reported_confidence,alternative_interpretations) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+        inserted = db.execute("INSERT OR IGNORE INTO results(job_id,row_no,labels,rationale,status,error,raw,attempts,seconds,prompt_tokens,completion_tokens,evidence,thinking,attempt_outputs,error_count,self_reported_confidence,alternative_interpretations,candidate_interpretations) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
             job_id, row_no, dumps(result["labels"]), result["rationale"], result["status"], result["error"], result["raw"],
-            result["attempts"], result["seconds"], result["prompt_tokens"], result["completion_tokens"], dumps(result.get("evidence", [])), result.get("thinking"), dumps(result.get("attempt_outputs", [])), max(int(bool(result["error"])),sum(bool(a.get("error")) for a in result.get("attempt_outputs", []))), result.get("self_reported_confidence"), dumps(result.get("alternative_interpretations", [])))).rowcount
+            result["attempts"], result["seconds"], result["prompt_tokens"], result["completion_tokens"], dumps(result.get("evidence", [])), result.get("thinking"), dumps(result.get("attempt_outputs", [])), max(int(bool(result["error"])),sum(bool(a.get("error")) for a in result.get("attempt_outputs", []))), result.get("self_reported_confidence"), dumps(result.get("alternative_interpretations", [])), dumps(result.get("candidate_interpretations", [])))).rowcount
         if inserted:
             db.execute("UPDATE jobs SET done=done+1,failed=failed+?,fallback_count=fallback_count+?,updated=?,last_error=COALESCE(?,last_error),requests=requests+?,prompt_tokens=prompt_tokens+?,completion_tokens=completion_tokens+?,total_seconds=total_seconds+? WHERE id=?", (
                 int(result["status"] != "ok"), int(result["status"] == "fallback"), time.time(), result["error"], result["attempts"], result["prompt_tokens"], result["completion_tokens"], result["seconds"], job_id))

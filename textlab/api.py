@@ -25,7 +25,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="TextLab", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.7.0", lifespan=lifespan)
 
 
 def get(db, table, id):
@@ -84,7 +84,7 @@ def delete_task(id: str):
 
 @app.post("/api/tasks/preview")
 def preview(task: Task):
-    return messages(task, Query(model="preview"), "Hier steht der zu klassifizierende Text.")
+    return messages(task, Query(model="preview"), "The text to classify goes here.")
 
 
 @app.get("/api/profiles")
@@ -266,7 +266,7 @@ def result_row(row):
     row = dict(row)
     row["fallback_used"] = row["status"] == "fallback"
     row["labels"] = json.loads(row["labels"])
-    for field in ("evidence", "attempt_outputs", "alternative_interpretations"):
+    for field in ("evidence", "attempt_outputs", "alternative_interpretations", "candidate_interpretations"):
         row[field] = json.loads(row[field])
     row["source"] = json.loads(row.pop("data"))
     return row
@@ -291,7 +291,7 @@ def safe_cell(value):
     return value
 
 
-EXPORT_FIELDS = ["self_reported_confidence", "alternative_interpretations", "fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
+EXPORT_FIELDS = ["self_reported_confidence", "alternative_interpretations", "candidate_interpretations", "fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
 
 
 @app.get("/api/jobs/{id}/export")
@@ -318,7 +318,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
     def flat_rows():
         for row in export_rows(id, job["dataset_id"]):
             flat = {"source." + key: row["source"].get(key, "") for key in columns}
-            flat.update({"classification." + key: dumps(row[key]) if key in ("labels", "evidence", "attempt_outputs", "alternative_interpretations") else row[key] for key in EXPORT_FIELDS})
+            flat.update({"classification." + key: dumps(row[key]) if key in ("labels", "evidence", "attempt_outputs", "alternative_interpretations", "candidate_interpretations") else row[key] for key in EXPORT_FIELDS})
             yield flat
 
     fields = ["source." + c for c in columns] + ["classification." + c for c in EXPORT_FIELDS]

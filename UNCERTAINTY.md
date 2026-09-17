@@ -1,36 +1,62 @@
-# Confidence, ambiguity and experiment size — TextLab 0.6
+# Confidence, ambiguity and experiment size — TextLab 0.7
 
-## Task settings
+## Fixed evidence-first generation
 
-Two independent, default-off settings are available in **Define tasks**:
+All newly generated prompts use this fixed order, without an order setting:
 
-- **Self-reported confidence (uncalibrated)** requests a finite numeric `self_reported_confidence` between 0 and 1. The prompt defines it as estimated probability that the entire primary label set agrees with a competent adjudicator using the codebook. It is not a measured probability, codebook fit score, or fitted calibration model.
-- **Structured alternative interpretations** requests up to five competing label sets under the same codebook. Each contains `labels`, `justification`, `supporting_quotes`, and `boundary_note`. Empty alternatives means the model identifies no genuine competing interpretation. Several labels inside one interpretation mean simultaneous multi-label coding; separate interpretations mean competing readings.
+1. `evidence`
+2. `candidate_interpretations`
+3. `rationale`
+4. `labels`
+5. `self_reported_confidence`
 
-Example response with both options enabled:
+Existing switches for evidence, candidate comparison (`alternatives` in task JSON), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. The schema properties, required-field list, prompt instructions, few-shot examples and demo responses all use this order.
+
+Evidence entries associate an exact input quote with **any category in the codebook**, including categories not selected in the final decision. The prompt requests relevant supporting and conflicting signals before choosing a label. Quotes still require exact substring validation and receive character offsets. An unknown label or invented quote is rejected. Empty evidence is allowed when the decision concerns absent evidence.
+
+When candidate comparison is enabled, the LLM returns **one to six distinct complete label sets**, including the eventual primary interpretation. Each candidate has `labels`, `justification`, `supporting_quotes` and `boundary_note`. A single candidate represents an unambiguous reading. Multiple labels within one candidate apply simultaneously; multiple candidates represent competing readings under the same codebook. Candidate quotes must be exact input substrings and may be empty where evidence is absent. The boundary note can explicitly state that no material counter-evidence was identified; the prompt does not require inventing objections.
+
+The rationale briefly compares the plausible interpretations and identifies decisive inclusion, exclusion or priority rules. The final `labels` must match one complete candidate set (order-insensitive), not a union of competing candidates. TextLab derives `alternative_interpretations` by removing that primary set from the candidate list; the model must not emit this derived field. Duplicate candidates, a missing primary candidate, invalid label cardinality, and extra fields are validation errors and use the existing retry policy.
+
+Example model response with all options enabled:
 
 ```json
 {
+  "evidence": [
+    {"label": "FOR", "quote": "We support the policy."},
+    {"label": "AGAINST", "quote": "But its costs are unacceptable."}
+  ],
+  "candidate_interpretations": [
+    {
+      "labels": ["FOR"],
+      "justification": "The speaker explicitly supports the policy.",
+      "supporting_quotes": ["We support the policy."],
+      "boundary_note": "The following cost criticism limits the strength of support."
+    },
+    {
+      "labels": ["AGAINST"],
+      "justification": "The cost criticism could imply rejection.",
+      "supporting_quotes": ["But its costs are unacceptable."],
+      "boundary_note": "The speaker nevertheless explicitly endorses the policy."
+    }
+  ],
+  "rationale": "Under this codebook, explicit endorsement takes priority over criticism of implementation costs.",
   "labels": ["FOR"],
-  "self_reported_confidence": 0.65,
-  "alternative_interpretations": [{
-    "labels": ["AGAINST"],
-    "justification": "The opposing view may be the author's own position.",
-    "supporting_quotes": ["We should reconsider this policy."],
-    "boundary_note": "The speaker attribution is unclear in the supplied excerpt."
-  }]
+  "self_reported_confidence": 0.75
 }
 ```
 
-The application validates label membership/cardinality, distinct alternative sets, nonempty explanations, and exact quote substrings. Alternative quotes may be empty when no explicit span supports the reading. Unknown fields, booleans/NaN/infinity as confidence, duplicate alternatives, and invented quotes invalidate the response and use the existing retry policy. Rationale and primary evidence remain independently configurable. Few-shot example confidence values are illustrative values attached to supplied codebook examples, not calibration observations.
+Here the stored alternatives contain only the AGAINST candidate. Both full candidates are retained separately. The example assumes that the supplied codebook actually specifies that priority rule.
 
-Primary labels alone are scored by existing classification metrics. Alternatives do not silently convert a wrong primary decision into a correct one. Their substantive validity requires human review. No synthetic perspective/annotator identities are introduced.
+Self-reported confidence is a finite number between 0 and 1, estimating exact agreement with a competent adjudicator. It remains **uncalibrated**, not a codebook-fit or prototypicality score. Few-shot confidence values attached to supplied codebook examples are illustrative, not calibration observations. Primary labels alone enter classification metrics; plausible alternatives do not silently make a wrong primary decision correct.
 
-Task snapshots preserve these settings. Editing a task affects new jobs only. Increase the output token budget when enabling richer responses; a truncated JSON response can fail validation. Existing task examples, prompt preview and JSON task import/export remain supported.
+JSON object order is not a semantic JSON constraint. TextLab requests the fixed generation sequence everywhere but does not reject an otherwise valid response solely because a provider returns its properties in another order, or pretend that reserializing a completed answer changes generation. Raw responses are preserved for auditing actual order. Backend compliance and quality gains require testing with the selected model; this release does not establish better classification performance.
+
+New job snapshots and inference attempt logs identify the fixed protocol as `evidence-first-v1`. It is not a task/query option. Increase maximum output tokens when using rich candidates and evidence. No extra LLM calls are added, so query-count estimates are unchanged.
 
 ## Storage and downloads
 
-Both fields are persisted in SQLite and exposed in job/evaluation result details and downloads. JSON/JSONL retains nested alternatives; CSV/Parquet serializes nested objects as JSON strings. Parquet confidence is numeric and nullable. Fallback, failed and unprocessed results have no confidence and no alternatives. For task settings that are off, confidence is null and alternatives are empty; consult the job snapshot to distinguish disabled output from an unambiguous result.
+Candidate interpretations, derived alternatives and confidence are persisted in SQLite and exposed in job/evaluation result details and downloads. JSON/JSONL retains nested alternatives; CSV/Parquet serializes nested objects as JSON strings. Parquet confidence is numeric and nullable. Fallback, failed and unprocessed results have no confidence, candidates or alternatives. For task settings that are off, confidence is null and alternatives are empty; consult the job snapshot to distinguish disabled output from an unambiguous result.
 
 Prediction batches additionally persist `agreement.csv` and `agreement.jsonl` beside other filesystem exports. Evaluation report bundles include `agreement.csv`, `confidence.json`, `confidence_metrics.csv`, and SVG/PNG reliability and risk–coverage charts. HTML reports embed the confidence charts and metric table.
 
@@ -75,4 +101,6 @@ These counts are workload estimates, not time forecasts. Empty/rejected texts ma
 
 ## Upgrade
 
-Stop API and worker and back up the complete data volume, then install/rebuild and restart both with the same data location. Schema version 5 adds nullable confidence and an empty-default alternatives column. Historical outputs remain unchanged; old saved prediction artifacts are retained, and new batches include the new fields/files. Older report snapshots have no confidence diagnostics and display n/a; agreement can still be computed from their saved primary labels. Reload the browser. See UPGRADE.md.
+Stop API and worker and back up the complete data volume, then install/rebuild and restart both with the same data location. Schema version 6 adds an empty-default candidate column to the existing confidence/alternatives fields. Historical outputs remain unchanged; old saved prediction artifacts are retained, and new batches include the new fields/files. Older report snapshots have no confidence diagnostics and display n/a; agreement can still be computed from their saved primary labels. Reload the browser. See UPGRADE.md.
+
+Historical alternatives remain untouched; they are not retroactively reconstructed into candidate lists. Old completed results therefore have empty candidates. Finish existing jobs using the old worker before upgrading when consistent inference protocols within an experiment are required. Resuming old jobs with the new worker uses the new fixed protocol for new requests; attempt logs identify it. Reusing an older evaluated configuration also uses the new generation protocol, so repeat evaluation before treating its quality as equivalent.

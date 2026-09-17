@@ -131,14 +131,14 @@ def prediction_rows(prediction):
         snapshot=json.loads(run['snapshot']);after=0
         while True:
             with connect() as db:
-                rows=db.execute('''SELECT d.row_no,d.data,r.self_reported_confidence,r.alternative_interpretations,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds,r.prompt_tokens,r.completion_tokens
+                rows=db.execute('''SELECT d.row_no,d.data,r.self_reported_confidence,r.alternative_interpretations,r.candidate_interpretations,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds,r.prompt_tokens,r.completion_tokens
                 FROM records d LEFT JOIN results r ON r.job_id=? AND r.row_no=d.row_no
                 WHERE d.dataset_id=? AND d.row_no>? ORDER BY d.row_no LIMIT 500''',(run['id'],prediction['dataset_id'],after)).fetchall()
             if not rows:break
             for row in rows:
                 out=dict(row);out['source']=json.loads(out.pop('data'))
                 out['labels']=json.loads(out['labels']) if out['status'] in ('ok','fallback') else None
-                out['alternative_interpretations']=json.loads(out['alternative_interpretations'] or '[]');out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
+                out['candidate_interpretations']=json.loads(out['candidate_interpretations'] or '[]');out['alternative_interpretations']=json.loads(out['alternative_interpretations'] or '[]');out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
                 out.update(seed=snapshot['query'].get('seed'),fallback_used=out['status']=='fallback',status=out['status'] or 'not_processed',task_id=snapshot['task_id'],task_name=run['task_name'],job_id=run['id'])
                 yield out
             after=rows[-1]['row_no']
@@ -157,7 +157,7 @@ def build_artifacts(prediction):
         dataset=fetch(db,'datasets',prediction['dataset_id'])
         manifest=info(db,prediction)
     columns=json.loads(dataset['columns_json'])
-    meta=['self_reported_confidence','alternative_interpretations','seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
+    meta=['self_reported_confidence','alternative_interpretations','candidate_interpretations','seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
     fields=['source.'+c for c in columns]+['prediction.'+c for c in meta]
     integer={'seed','row_no','attempts','prompt_tokens','completion_tokens'}
     schema=pa.schema([(f,pa.bool_() if f=='prediction.fallback_used' else pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f in ('prediction.seconds','prediction.self_reported_confidence') else pa.string()) for f in fields])
@@ -184,7 +184,7 @@ def build_artifacts(prediction):
                 writer=csv.DictWriter(csvout,fieldnames=list(row));writer.writeheader()
             writer.writerow({k:safe_cell(dumps(v) if isinstance(v,(list,dict)) else v) for k,v in row.items()})
             jsonout.write(dumps(row)+'\n')
-    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.6.0',layout='one row per source record and task',created_at=time.time())
+    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.7.0',layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
     os.replace(staging,final)

@@ -1,4 +1,8 @@
-# TextLab 0.6.0
+# TextLab 0.7.0
+
+## New in 0.7
+
+Fixed evidence-first generation: evidence → candidate interpretations → rationale → labels → confidence (enabled fields). Evidence may refer to competing categories; final labels must match one candidate. Full candidates are stored and alternatives are derived by the backend. No configurable ordering. See [UNCERTAINTY.md](UNCERTAINTY.md).
 
 ## New in 0.6
 
@@ -98,17 +102,17 @@ The profile stores the **name** of an API-key environment variable, not its valu
 
 Tasks include name, description, mode, unique category labels and definitions, category-specific examples, global multi-label examples, instructions, ambiguity handling, optional empty multi-label selection, rationale, evidence and thinking. For single-label tasks, define a fallback category if needed. Include coding-unit definitions, exclusions and conflict-resolution rules in the instructions.
 
-When both optional output fields are enabled:
+When evidence and rationale are enabled (candidate comparison and confidence disabled):
 
 ```json
 {
-  "labels": ["FOR"],
+  "evidence": [{"label": "FOR", "quote": "I support the proposal"}],
   "rationale": "The text explicitly supports the proposal.",
-  "evidence": [{"label": "FOR", "quote": "I support the proposal"}]
+  "labels": ["FOR"]
 }
 ```
 
-Unknown or duplicate labels, invalid cardinality, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with a selected label. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
+Unknown or duplicate labels, invalid cardinality, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with any known codebook label, including competing categories. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
 
 Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Task JSON can be imported through `POST /api/tasks`; there is no separate JSON-import UI.
 

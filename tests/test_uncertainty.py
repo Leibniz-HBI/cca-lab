@@ -15,17 +15,17 @@ TASK={'name':'Stance','instructions':'Code stance.','categories':[{'label':'A','
 
 
 def example():
-    return {'labels':['A'],'self_reported_confidence':.65,'alternative_interpretations':[{'labels':['B'],'justification':'Plausible alternate reading.','supporting_quotes':['Beta'],'boundary_note':'Speaker attribution is uncertain.'}]}
+    return {'candidate_interpretations':[{'labels':['B'],'justification':'Plausible alternate reading.','supporting_quotes':['Beta'],'boundary_note':'Speaker attribution is uncertain.'},{'labels':['A'],'justification':'Best fit.','supporting_quotes':['Alpha'],'boundary_note':'Beta is a competing reading.'}], 'labels':['A'],'self_reported_confidence':.65}
 
 
 def test_structured_alternatives_and_confidence_validation():
     task=Task(**TASK);obj=example()
-    assert parse_result(dumps(obj),task,'Alpha Beta')==obj
+    assert parse_result(dumps(obj),task,'Alpha Beta')=={**obj,'alternative_interpretations':obj['candidate_interpretations'][:1]}
     assert set(output_schema(task)['required'])==set(obj)
     for bad in [True,-.01,1.01,float('nan'),float('inf'),'0.5',None]:
         with pytest.raises(ValueError):parse_result(json.dumps({**obj,'self_reported_confidence':bad}),task,'Alpha Beta')
     for labels in [['A'],['unknown'],['B','B'],['A','B'],[]]:
-        broken=example();broken['alternative_interpretations'][0]['labels']=labels
+        broken=example();broken['candidate_interpretations'][0]['labels']=labels
         with pytest.raises(ValueError):parse_result(dumps(broken),task,'Alpha Beta')
     with pytest.raises(ValueError):parse_result(dumps(obj),task,'Alpha only')
     with pytest.raises(ValueError):parse_result(dumps(obj),Task(**{**TASK,'alternatives':False}),'Alpha Beta')
@@ -33,9 +33,9 @@ def test_structured_alternatives_and_confidence_validation():
 
 def test_multilabel_alternatives_are_sets_not_additional_labels():
     task=Task(**{**TASK,'mode':'multi','allow_empty':True})
-    obj=example();obj['labels']=['A','B'];obj['alternative_interpretations'][0]['labels']=[]
+    obj=example();obj['labels']=['A','B'];obj['candidate_interpretations'][1]['labels']=['A','B'];obj['candidate_interpretations'][0]['labels']=[]
     assert parse_result(dumps(obj),task,'Alpha Beta')['alternative_interpretations'][0]['labels']==[]
-    obj['alternative_interpretations'][0]['labels']=['B','A']
+    obj['candidate_interpretations'][0]['labels']=['B','A']
     with pytest.raises(ValueError):parse_result(dumps(obj),task,'Alpha Beta')
 
 
@@ -110,7 +110,7 @@ def test_fallback_confidence_unavailable_and_alternative_retry(monkeypatch):
     calls=[]
     def reply(request):
         calls.append(request)
-        invalid=example();invalid['alternative_interpretations'][0]['supporting_quotes']=['not in text']
+        invalid=example();invalid['candidate_interpretations'][0]['supporting_quotes']=['not in text']
         return httpx.Response(200,json={'choices':[{'message':{'content':dumps(invalid)}}]})
     snapshot={'task':task,'query':{'model':'m','retries':1},'profile':{'name':'Server','provider':'openai','base_url':'http://localhost'}}
     monkeypatch.setattr('textlab.llm.time.sleep',lambda _:None)
@@ -133,10 +133,12 @@ def test_alternative_persistence_and_numeric_job_parquet(client,monkeypatch):
     jid=client.post('/api/jobs',json={'name':'Roundtrip','dataset_id':did,'task_id':tid,'profile_id':pid,'text_column':'text','query':{'model':'m'}}).json()['id']
     for _ in range(5):tick()
     rows=client.get('/api/jobs/'+jid+'/results').json()
-    assert rows[0]['alternative_interpretations']==example()['alternative_interpretations']
+    assert rows[0]['candidate_interpretations']==example()['candidate_interpretations']
+    assert rows[0]['alternative_interpretations']==example()['candidate_interpretations'][:1]
     table=pq.read_table(io.BytesIO(client.get('/api/jobs/'+jid+'/export?format=parquet').content))
     assert table['classification.self_reported_confidence'].to_pylist()==[.65,.65]
-    assert json.loads(table['classification.alternative_interpretations'][0].as_py())==example()['alternative_interpretations']
+    assert json.loads(table['classification.candidate_interpretations'][0].as_py())==example()['candidate_interpretations']
+    assert json.loads(table['classification.alternative_interpretations'][0].as_py())==example()['candidate_interpretations'][:1]
 
 
 def test_agreement_deduplicates_same_seed_and_excludes_cancelled_runs(client):

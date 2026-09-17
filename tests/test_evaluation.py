@@ -231,7 +231,7 @@ def test_migration_preserves_legacy_results(tmp_path,monkeypatch):
     with connect() as db:
         row=dict(db.execute('SELECT * FROM results').fetchone())
         assert row['labels']=='["A"]' and row['evidence']=='[]' and row['thinking'] is None
-        assert db.execute('PRAGMA user_version').fetchone()[0]==5
+        assert db.execute('PRAGMA user_version').fetchone()[0]==6
 
 
 def test_cancelled_evaluation_report_includes_unprocessed(client):

@@ -233,7 +233,7 @@ def prediction_rows(id, job_id=None, after=0, limit=None):
                 break
             with connect() as db:
                 rows = db.execute('''SELECT g.row_no,g.doc_id,g.labels gold_labels,d.data,
-                    r.self_reported_confidence,r.alternative_interpretations,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds
+                    r.self_reported_confidence,r.alternative_interpretations,r.candidate_interpretations,r.labels,r.rationale,r.evidence,r.thinking,r.attempt_outputs,r.status,r.error,r.raw,r.attempts,r.seconds
                     FROM gold_rows g JOIN records d ON d.dataset_id=? AND d.row_no=g.row_no
                     LEFT JOIN results r ON r.job_id=? AND r.row_no=g.row_no
                     WHERE g.gold_id=? AND g.row_no>? ORDER BY g.row_no LIMIT ?''',
@@ -246,7 +246,7 @@ def prediction_rows(id, job_id=None, after=0, limit=None):
                 raw_labels = result.pop('labels')
                 result['predicted_labels'] = json.loads(raw_labels) if result['status'] in ('ok','fallback') else None
                 result['text'] = json.loads(result.pop('data'))[spec['text_column']]
-                for field in ('evidence','attempt_outputs','alternative_interpretations'):
+                for field in ('evidence','attempt_outputs','alternative_interpretations','candidate_interpretations'):
                     result[field] = json.loads(result[field] or '[]')
                 result['status'] = result['status'] or 'not_processed'
                 result['exact_match'] = set(result['gold_labels']) == set(result['predicted_labels']) if result['predicted_labels'] is not None else False

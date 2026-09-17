@@ -1,3 +1,15 @@
+# TextLab 0.7.0 validation
+
+- 71 automated tests passed. Fixed-order coverage checks all 16 combinations of optional evidence, candidate comparison, rationale and confidence fields, with matching schema/required lists, instructions, few-shot examples and demo output.
+- Validation tests cover exact evidence for unselected categories, unknown-category rejection, distinct candidate sets, missing-primary rejection, multi-label set equality, backend-derived alternatives, and rejection of model-supplied derived alternatives.
+- Candidate lists and derived alternatives are checked through stored results and Parquet downloads. Existing evaluation, prediction, confidence, agreement and export regression tests pass.
+- The targeted 11 output-order/uncertainty tests were rerun after adding candidate persistence assertions and passed.
+- Playwright/Chromium passed the prompt-preview check for the fixed order, actual demo JSON order, candidate persistence and alternative derivation, plus evaluation/prediction counts, confidence plots, agreement and downloads with no JavaScript or HTTP 5xx errors. The prompt-preview screenshot is included in docs/.
+- No real model/GPU accuracy comparison was performed. Fixed prompt/schema/example order requests a generation protocol; backend key-order compliance and classification improvements are not guaranteed. Raw output is retained for audit, and valid JSON is not rejected solely for key reordering.
+- Schema version 6 adds candidate storage; historical outputs remain unchanged. Attempt logs and new job snapshots identify evidence-first-v1. Three existing non-failing dependency/metric warnings remain.
+
+## Earlier release validation
+
 # TextLab 0.6.0 validation
 
 - 68 automated tests passed in total: the 60 existing tests plus eight new uncertainty tests. New coverage includes finite confidence validation, single-/multi-label alternative sets, exact quotes, invalid-output retries and fallback, metric reference values, confidence ties and undefined outcomes, cancelled/duplicate-seed exclusions, nonempty alternative persistence, and numeric nullable confidence in Parquet.
