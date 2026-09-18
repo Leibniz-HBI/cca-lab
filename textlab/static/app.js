@@ -128,7 +128,7 @@ async function action(event) {
   if(a==='close')$('#editor').close();if(a==='close-detail'){$('#detail').close();selectedJob=null;}
   if(a==='new-task'||a==='edit-task')taskEditor(id);if(a==='new-profile'||a==='edit-profile')profileEditor(id);if(a==='new-dataset')datasetEditor();if(a==='new-job')await jobEditor();
   if(a==='add-category')$('#categories').insertAdjacentHTML('beforeend',categoryHTML());if(a==='remove-category')el.closest('.category').remove();
-  if(a==='prompt-preview'){const prompt=await api('/tasks/preview',{method:'POST',body:JSON.stringify(readTask())});$('#prompt-preview').hidden=false;$('#prompt-preview').textContent=JSON.stringify(prompt,null,2);}
+  if(a==='prompt-preview')await previewTask();
   if(a==='download-task')download('textlab-task.json',state.tasks.find(t=>t.id===id).spec);
   if(a==='delete-task'&&confirm('Delete this task? Existing job snapshots are preserved.')){await api('/tasks/'+id,{method:'DELETE'});await refresh();}
   if(a==='test-profile'){const r=await api('/profiles/'+id+'/models');toast(r.models.join(', ')||'No models available.');}

@@ -21,6 +21,35 @@ function ccaField(label,name,value='',type='text',required=false){
 function ccaArea(label,name,value='',required=false){
  return '<label>'+esc(label)+'<textarea name="'+name+'" '+(required?'required':'')+'>'+esc(value)+'</textarea></label>';
 }
+function criteriaText(values){return values.map(v=>'- '+v.replaceAll('\n','\n  ')).join('\n');}
+function parseCriteria(text){
+ if(!text.trim())return [];
+ if(!text.startsWith('- '))return [text];
+ const values=[];
+ for(const line of text.split('\n')){
+  if(line.startsWith('- '))values.push(line.slice(2));
+  else if(line.startsWith('  ')&&values.length)values[values.length-1]+='\n'+line.slice(2);
+  else throw Error('Criteria: start each item with "- " and indent continuation lines by two spaces.');
+ }
+ return values;
+}
+function criteriaField(key,values,label){
+ return '<div class="cca-criteria" data-key="'+key+'">'+ccaArea(label,key,criteriaText(values))+
+ '<small>Start each item with “- ”; indent continuation lines by two spaces. Plain text is one criterion.</small></div>';
+}
+async function previewTask(){
+ const task=readTask(),query={model:'preview',structured_output:$('[name=preview_mode]').value},provider=$('[name=preview_provider]').value;
+ const preview=await api('/tasks/preview-request',{method:'POST',body:JSON.stringify({task,query,provider})});
+ const box=$('#prompt-preview');box.hidden=false;box.replaceChildren();
+ const note=document.createElement('p');note.className='small';note.textContent=preview.note+' Protocol: '+preview.prompt_protocol;box.append(note);
+ for(const message of preview.request.messages){
+  const panel=document.createElement('section'),heading=document.createElement('h4'),content=document.createElement('pre');
+  heading.textContent=message.role.toUpperCase();content.textContent=message.content;panel.append(heading,content);box.append(panel);
+ }
+ const details=document.createElement('details'),summary=document.createElement('summary'),raw=document.createElement('pre');
+ summary.textContent='Raw request JSON · '+preview.path;raw.textContent=JSON.stringify(preview.request,null,2);
+ details.append(summary,raw);box.append(details);
+}
 function listItems(key,values=[],label=key){
  return '<div class="cca-list" data-key="'+key+'"><div class="section-title"><strong>'+esc(label)+'</strong><button type="button" data-action="cca-add-item">+ Add</button></div><div class="cca-items">'+values.map(v=>listItem(v)).join('')+'</div></div>';
 }
@@ -32,7 +61,7 @@ function exampleHTML(ex={}){
  return '<div class="cca-example"><div class="category-head"><strong>Coding example</strong><button type="button" data-action="cca-remove-example">Remove</button></div>'+ccaArea('Example text','example_text',ex.text||'',true)+'<label>Category IDs<select name="example_labels" multiple required data-selected="'+esc(JSON.stringify(ex.labels||[]))+'"></select><small>Select all applicable categories. Use Ctrl/Cmd for multiple labels.</small></label>'+ccaArea('Context (optional)','example_context',ex.context||'')+ccaArea('Explanation (optional)','explanation',ex.explanation||'')+'</div>';
 }
 categoryHTML=function(c={}){
- return '<div class="category cca-category"><div class="category-head"><strong>Category</strong><button type="button" data-action="remove-category">Remove</button></div><div class="grid">'+ccaField('Category ID','cat-id',c.id||'','text',true)+ccaField('Label / display name','cat-label',c.label||'','text',true)+'</div>'+ccaArea('Definition','cat-definition',c.definition||'',true)+'<details><summary>Criteria, aliases and coding notes</summary>'+listItems('inclusion_criteria',c.inclusion_criteria||[],'Inclusion criteria')+listItems('exclusion_criteria',c.exclusion_criteria||[],'Exclusion criteria')+listItems('aliases',c.aliases||[],'Aliases')+ccaArea('Coding notes','coding_notes',c.coding_notes||'')+'</details></div>';
+ return '<div class="category cca-category"><div class="category-head"><strong>Category</strong><button type="button" data-action="remove-category">Remove</button></div><div class="grid">'+ccaField('Category ID','cat-id',c.id||'','text',true)+ccaField('Label / display name','cat-label',c.label||'','text',true)+'</div>'+ccaArea('Definition','cat-definition',c.definition||'',true)+'<details><summary>Criteria, aliases and coding notes</summary>'+criteriaField('inclusion_criteria',c.inclusion_criteria||[],'Inclusion criteria')+criteriaField('exclusion_criteria',c.exclusion_criteria||[],'Exclusion criteria')+listItems('aliases',c.aliases||[],'Aliases')+ccaArea('Coding notes','coding_notes',c.coding_notes||'')+'</details></div>';
 };
 taskEditor=function(id,seedSpec=null){
  const existing=state.tasks.find(t=>t.id===id),t=existing?.spec||seedSpec;
@@ -44,9 +73,10 @@ taskEditor=function(id,seedSpec=null){
  '<section class="cca-section"><div class="section-title"><h3>Categories</h3><button type="button" data-action="add-category">+ Category</button></div><p class="small">Predictions use category IDs. Define an explicit category for “none applicable” if your codebook requires it.</p><div id="categories">'+task.categories.map(categoryHTML).join('')+'</div></section>'+
  '<section class="cca-section"><div class="section-title"><h3>Examples</h3><button type="button" data-action="cca-add-example">+ Example</button></div><div id="cca-examples">'+(c.examples||[]).map(exampleHTML).join('')+'</div></section>'+
  '<details class="cca-section"><summary>TextLab execution defaults</summary><p class="small">These settings are stored separately from the CCA codebook.</p>'+[['rationale','Generate rationale'],['evidence','Extract verbatim evidence'],['alternatives','Compare candidate interpretations'],['confidence','Self-reported confidence (uncalibrated)']].map(([k,label])=>'<label><input type="checkbox" name="'+k+'" '+(d[k]?'checked':'')+'>'+label+'</label>').join('')+thinkingSelect('thinking',d.thinking||'default')+'<label>Fallback category after failed LLM attempts<select name="default_label" data-selected="'+esc(d.default_label||'')+'"></select><small>Fallback results remain flagged as errors.</small></label></details>'+
- '<details class="cca-section"><summary>Prompt preview</summary><button type="button" data-action="prompt-preview">Generate preview</button><pre id="prompt-preview" hidden></pre></details>','task',id);
+ '<details class="cca-section"><summary>Prompt preview</summary><div class="grid"><label>Preview provider<select name="preview_provider"><option value="openai">OpenAI-compatible</option><option value="ollama">Ollama</option></select></label><label>Output format<select name="preview_mode"><option value="json_schema">Native JSON Schema</option><option value="json_object">JSON object</option><option value="none">Prompt only</option></select></label></div><button type="button" data-action="prompt-preview">Generate preview</button><div id="prompt-preview" hidden></div></details>','task',id);
  edit.revision=existing?.revision;edit.originalCodebook=structuredClone(c);
  syncCategoryChoices();indexCCAFields();
+ document.querySelectorAll('.cca-criteria textarea').forEach(el=>{el.dataset.original=JSON.stringify(task.categories[Array.from(document.querySelectorAll('.cca-category')).indexOf(el.closest('.cca-category'))][el.name]||[]);});
  $('#editor').scrollTop=0;$('[name=title]').focus({preventScroll:true});
 };
 function syncCategoryChoices(){
@@ -71,13 +101,16 @@ function indexCCAFields(){
  document.querySelectorAll('.cca-category').forEach((el,i)=>{
   const base='/task/categories/'+i;
   for(const [name,key] of [['cat-id','id'],['cat-label','label'],['cat-definition','definition'],['coding_notes','coding_notes']])set(el.querySelector('[name='+name+']'),base+'/'+key);
+  for(const key of ['inclusion_criteria','exclusion_criteria'])set(el.querySelector('[name='+key+']'),base+'/'+key);
   el.querySelectorAll('.cca-list').forEach(list=>{set(list,base+'/'+list.dataset.key);list.querySelectorAll('textarea').forEach((input,j)=>set(input,base+'/'+list.dataset.key+'/'+j));});
  });
  for(const key of ['authors','maintainers']){const list=$('.cca-list[data-key='+key+']');set(list,'/'+key);list.querySelectorAll('textarea').forEach((el,i)=>set(el,'/'+key+'/'+i));}
  document.querySelectorAll('.cca-example').forEach((el,i)=>{for(const [name,key] of [['example_text','text'],['example_labels','labels'],['example_context','context'],['explanation','explanation']])set(el.querySelector('[name='+name+']'),'/examples/'+i+'/'+key);});
  document.querySelectorAll('.cca-reference').forEach((el,i)=>{for(const key of ['citation','doi'])set(el.querySelector('[name='+key+']'),'/references/'+i+'/'+key);});
 }
-function readList(el,key){return [...el.querySelectorAll('.cca-list[data-key='+key+'] textarea')].map(e=>e.value);}
+function readList(el,key){
+ const field=el.querySelector('.cca-criteria textarea[name='+key+']');if(field){if(field.dataset.original&&field.value===field.defaultValue)return JSON.parse(field.dataset.original);return parseCriteria(field.value);}
+ return [...el.querySelectorAll('.cca-list[data-key='+key+'] textarea')].map(e=>e.value);}
 readTask=function(){
  indexCCAFields();const form=$('#editor-form'),value=name=>form.querySelector('[name='+name+']').value;
  const original=edit.originalCodebook;

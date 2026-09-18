@@ -1,10 +1,20 @@
-# TextLab 0.9.0
+# TextLab 0.10.0
+
+## New in 0.10 — readable prompts and faithful examples
+
+Structured prompt sections, bullet criteria, and codebook examples containing only
+their supplied annotations. Native JSON Schema requests avoid embedding a duplicate
+schema in the prompt. Criteria use two multiline editors; CCA 0.1 remains unchanged.
+Prompt preview displays readable message panels and the raw provider request.
+
+New jobs use cca-reference-v2; 0.9 snapshots keep evidence-first-v1.
+See [PROMPTS.md](PROMPTS.md) for formatting, upgrade behavior and paired comparison.
 
 ## New in 0.9 — CCA schema-first tasks
 
 CCA Schema 0.1 is now the authoritative coding instrument throughout storage, editing, prompts, snapshots and exports. Create task provides native form controls for identity, provenance, coding instructions, categories, criteria, references and examples. Execution defaults are separate; validation errors identify the affected fields. Prompt preview has its own collapsible section.
 
-**Fresh installation required:** this release intentionally provides no migration from the earlier task format. Use an empty data directory or a new Docker volume. Import CCA codebooks into the new instance. See [CCA.md](CCA.md) and [UPGRADE.md](UPGRADE.md).
+**For installations older than 0.9:** no migration from the earlier task format is provided. Use an empty data directory or a new Docker volume. Import CCA codebooks into the new instance. See [CCA.md](CCA.md) and [UPGRADE.md](UPGRADE.md).
 
 CCA import survives background refresh, with persistent feedback and request-correlated diagnostics. See [LOGGING.md](LOGGING.md).
 

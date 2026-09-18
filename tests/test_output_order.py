@@ -13,9 +13,9 @@ def test_fixed_order_for_all_optional_field_combinations():
         schema = output_schema(task)
         assert list(schema['properties']) == schema['required'] == order
         msg = messages(task, Query(model='m'), 'Alpha Beta')
-        assert 'Fixed output sequence: ' + ' -> '.join(order) in msg[0]['content']
-        assert list(json.loads(msg[2]['content'])) == order
-        parsed = parse_result(msg[2]['content'], task, 'Alpha Beta')
+        assert 'Emit only these fields, in order: ' + ' → '.join(order) in msg[0]['content']
+        assert [m['role'] for m in msg] == ['system','user']
+        parsed = parse_result(json.dumps(example_response(task, 'Alpha Beta', ['A'], 'Demo')), task, 'Alpha Beta')
         if alternatives:
             assert parsed['alternative_interpretations'] == [] and parsed['candidate_interpretations'][0]['labels'] == ['A']
         assert list(example_response(task, 'Alpha Beta', ['A'], 'Supplied example')) == order

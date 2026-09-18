@@ -1,4 +1,16 @@
-# TextLab 0.9 — fresh installation
+# TextLab 0.10
+
+From 0.9: replace the source, restart API and worker, and hard-refresh the browser.
+No database migration or new Python dependency is needed. Codebooks and saved
+results remain unchanged; the CCA schema is unchanged.
+
+Existing 0.9 job snapshots retain their evidence-first-v1 compiler and validation
+behavior. New jobs default to cca-reference-v2. Reusing an evaluated job for prediction
+retains its prompt protocol. A paired comparison can explicitly select either
+compiler through the query configuration; field order remains fixed in both.
+See PROMPTS.md.
+
+## Installations older than 0.9
 
 This release changes the task API and stored task/snapshot representation to
 {codebook, execution_defaults}. Legacy task migration is intentionally not provided.

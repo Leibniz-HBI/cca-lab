@@ -31,8 +31,8 @@ def test_roundtrip_and_execution_semantics(client):
     prompt=messages(Task(**task),Query(model='mock'),'Wonderful.')
     for value in ['sentence','Explicit praise','Irony','Check attribution.','Positive','Use the preceding sentence']:
         assert value in prompt[0]['content']
-    assert json.loads(prompt[1]['content'])['context']=='The speaker welcomed the result.'
-    assert json.loads(prompt[2]['content'])['labels']==['101']
+    assert 'The speaker welcomed the result.' in prompt[0]['content']
+    assert '"101"' in prompt[0]['content']
     assert client.get('/api/tasks/'+id+'/export-cca').json()==doc
     task['codebook']['task']['categories'][0]['definition']='Updated operational definition'
     task['codebook']['task']['categories'][0]['inclusion_criteria']=['Updated criterion']
@@ -166,7 +166,7 @@ def test_canonical_fewshot_cap_and_execution_override():
     assert resolved.codebook==task.codebook and task.thinking=='high'
     assert resolved.thinking=='off' and not resolved.rationale
     prompt=messages(task,Query(model='m',examples_per_category=1),'Input')
-    assert len(prompt)==4 and json.loads(prompt[2]['content'])['labels']==['101','102']
+    assert len(prompt)==2 and 'Both' in prompt[0]['content'] and '"text": "Negative"' not in prompt[0]['content']
     assert len(messages(task,Query(model='m',examples_per_category=0),'Input'))==2
 
 

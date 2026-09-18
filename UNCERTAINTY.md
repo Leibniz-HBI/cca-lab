@@ -1,4 +1,4 @@
-# Confidence, ambiguity and experiment size — TextLab 0.7
+# Confidence, ambiguity and experiment size — TextLab 0.10
 
 ## Fixed evidence-first generation
 
@@ -10,7 +10,7 @@ All newly generated prompts use this fixed order, without an order setting:
 4. `labels`
 5. `self_reported_confidence`
 
-Existing switches for evidence, candidate comparison (`execution_defaults.alternatives` in task JSON), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. The schema properties, required-field list, prompt instructions, few-shot examples and demo responses all use this order.
+Existing switches for evidence, candidate comparison (`execution_defaults.alternatives` in task JSON), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. Schema properties, required-field lists, prompt instructions and demo responses use this order. Reference examples in cca-reference-v2 contain only supplied codebook annotations.
 
 Evidence entries associate an exact input quote with **any category in the codebook**, including categories not selected in the final decision. The prompt requests relevant supporting and conflicting signals before choosing a label. Quotes still require exact substring validation and receive character offsets. An unknown label or invented quote is rejected. Empty evidence is allowed when the decision concerns absent evidence.
 
@@ -48,7 +48,7 @@ Example model response with all options enabled:
 
 Here the stored alternatives contain only the AGAINST candidate. Both full candidates are retained separately. The example assumes that the supplied codebook actually specifies that priority rule.
 
-Self-reported confidence is a finite number between 0 and 1, estimating exact agreement with a competent adjudicator. It remains **uncalibrated**, not a codebook-fit or prototypicality score. Few-shot confidence values attached to supplied codebook examples are illustrative, not calibration observations. Primary labels alone enter classification metrics; plausible alternatives do not silently make a wrong primary decision correct.
+Self-reported confidence is a finite number between 0 and 1, estimating exact agreement with a competent adjudicator. It remains **uncalibrated**, not a codebook-fit or prototypicality score. The new compiler does not add confidence values to codebook examples. Primary labels alone enter classification metrics; plausible alternatives do not silently make a wrong primary decision correct.
 
 JSON object order is not a semantic JSON constraint. TextLab requests the fixed generation sequence everywhere but does not reject an otherwise valid response solely because a provider returns its properties in another order, or pretend that reserializing a completed answer changes generation. Raw responses are preserved for auditing actual order. Backend compliance and quality gains require testing with the selected model; this release does not establish better classification performance.
 
@@ -103,4 +103,4 @@ These counts are workload estimates, not time forecasts. Empty/rejected texts ma
 
 Stop API and worker and back up the complete data volume, then install/rebuild and restart both with the same data location. Schema version 6 adds an empty-default candidate column to the existing confidence/alternatives fields. Historical outputs remain unchanged; old saved prediction artifacts are retained, and new batches include the new fields/files. Older report snapshots have no confidence diagnostics and display n/a; agreement can still be computed from their saved primary labels. Reload the browser. See UPGRADE.md.
 
-Historical alternatives remain untouched; they are not retroactively reconstructed into candidate lists. Old completed results therefore have empty candidates. Finish existing jobs using the old worker before upgrading when consistent inference protocols within an experiment are required. Resuming old jobs with the new worker uses the new fixed protocol for new requests; attempt logs identify it. Reusing an older evaluated configuration also uses the new generation protocol, so repeat evaluation before treating its quality as equivalent.
+Historical alternatives remain untouched; they are not retroactively reconstructed into candidate lists. Old completed results therefore have empty candidates. Finish existing jobs using the old worker before upgrading when consistent inference protocols within an experiment are required. For 0.9 snapshots, 0.10 preserves the evidence-first-v1 compiler on resume and evaluated-configuration reuse. New jobs use cca-reference-v2. See PROMPTS.md for paired comparisons.

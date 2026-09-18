@@ -56,6 +56,8 @@ def create_prediction(spec: NewPrediction):
         for task in tasks:
             for seed in seeds:
                 query=spec.query.model_copy(update={'seed':seed})
+                if source:
+                    query=query.model_copy(update={'prompt_protocol':saved.get('prompt_protocol','evidence-first-v1')})
                 try:
                     snapshot=snapshot_for(task,profile,query,spec.text_column)
                 except ValueError as exc:
@@ -184,7 +186,7 @@ def build_artifacts(prediction):
                 writer=csv.DictWriter(csvout,fieldnames=list(row));writer.writeheader()
             writer.writerow({k:safe_cell(dumps(v) if isinstance(v,(list,dict)) else v) for k,v in row.items()})
             jsonout.write(dumps(row)+'\n')
-    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.9.0',layout='one row per source record and task',created_at=time.time())
+    manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version='0.10.0',layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
     os.replace(staging,final)

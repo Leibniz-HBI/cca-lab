@@ -30,8 +30,8 @@ const fs=require('fs');
  if(await page.locator('[name=unit_of_analysis]').inputValue()!=='sentence')throw Error('Missing unit');
  await page.locator('[name=title]').fill('Edited CCA sentiment');
  await page.getByText('Criteria, aliases and coding notes',{exact:true}).first().click();
- await page.locator('.cca-category').first().locator('[data-key=inclusion_criteria] [data-action=cca-add-item]').click();
- await page.locator('.cca-category').first().locator('[data-key=inclusion_criteria] textarea').last().fill('Positive evaluation');
+ 
+ await page.locator('[name=inclusion_criteria]').first().fill('- Explicit praise\n  Including clear approval\n- Positive evaluation');
  await page.locator('#editor-form button[type=submit]').click();await page.waitForFunction(()=>!document.querySelector('#editor').open);
  const downloadPromise=page.waitForEvent('download');await page.locator('[data-action=cca-export]').click();const download=await downloadPromise;
  const path=await download.path();const exported=JSON.parse(fs.readFileSync(path,'utf8'));
@@ -39,6 +39,18 @@ const fs=require('fs');
  await page.locator('[data-action=edit-task]').click();await page.getByText('Prompt preview',{exact:true}).click();await page.locator('[data-action=prompt-preview]').click();
  await page.waitForFunction(()=>document.querySelector('#prompt-preview').textContent.includes('Positive evaluation'));
  if(!(await page.locator('#prompt-preview').innerText()).includes('Resolve speaker attribution'))throw Error('Missing prompt context');
+ const initialRequest=await page.locator('#prompt-preview details pre').textContent().then(JSON.parse);
+ if(initialRequest.messages.length!==2||!initialRequest.response_format)throw Error('Preview native schema missing');
+ if(initialRequest.messages[0].content.includes('Required output schema:'))throw Error('Redundant native schema in prompt');
+ await page.locator('[name=preview_provider]').selectOption('ollama');
+ await page.locator('[name=preview_mode]').selectOption('none');
+ await page.locator('[data-action=prompt-preview]').click();
+ await page.waitForFunction(()=>document.querySelector('#prompt-preview').textContent.includes('Output JSON Schema:'));
+ const alternateRequest=await page.locator('#prompt-preview details pre').textContent().then(JSON.parse);
+ if(alternateRequest.format||!alternateRequest.options)throw Error('Wrong Ollama prompt-only request');
+ const preserved=await page.evaluate(()=>{const x=['First\n- literal bullet\n\nLast','  Second'];return JSON.stringify(x)===JSON.stringify(parseCriteria(criteriaText(x)));});
+ if(!preserved)throw Error('Criteria multiline roundtrip failed');
+
  await page.locator('[data-action=close]').first().click();
 
  await page.locator('#primary').click();

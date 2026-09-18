@@ -1,4 +1,8 @@
-# TextLab 0.9.0 validation
+# TextLab 0.10.0 validation
+
+105 Python tests verified across full and targeted regression runs. New coverage checks faithful reference examples, section ordering, multiline criteria formatting, empty-boundary validation, frozen legacy protocol behavior, paired experiment configuration/grouping, and preview/execution payload equality for all six provider/output-mode combinations. Browser checks cover criteria round-tripping, native-schema and prompt-only previews, task import/edit/export, evaluation and prediction. No live-model quality gains are claimed.
+
+## Previous 0.9 validation
 
 - 94 Python tests pass, including schema-first task creation/editing/preview, field error pointers, CCA round trips, fallback category IDs, whitespace/metadata retention and removal of old codebook limits.
 - Classification, model adapters, retries, seeds, evaluation metrics, reports, agreement and durable prediction exports are covered against canonical task snapshots.

@@ -57,7 +57,7 @@ Complete required fields before saving.
   maintainers, created/modified dates, citation/DOI references.
 - Coding instructions: instructions, unit, single-label/multi-label, permitted context.
 - Categories: ID, label, definition; expandable inclusion/exclusion criteria,
-  aliases and coding notes. Lists use individual text controls.
+  aliases and coding notes. Inclusion/exclusion criteria use two multiline bullet editors; aliases use individual text controls.
 - Examples: text, category-ID selection, optional context and explanation.
   One list supports both single-label and multi-label examples.
 - TextLab execution defaults: optional output fields, thinking and fallback category.
@@ -102,8 +102,7 @@ The editor preserves these optional arrays if originally present.
 
 A category ID is distinct from its human-facing label and aliases.
 Inclusion/exclusion criteria and notes are included explicitly in the prompt.
-CCA example explanation supplies the few-shot rationale when rationale is enabled.
-Example context is sent separately from example text. Task context describes how
+Reference examples preserve supplied text, labels, explanation and context; no missing output annotations are synthesized. Task context describes how
 context may be used; it does not automatically retrieve neighboring documents.
 
 The examples_per_category query parameter now applies to the one CCA examples
@@ -112,7 +111,7 @@ all its IDs are below the cap; a multi-label example is emitted once and counts
 towards every assigned ID. Zero disables all few-shot examples.
 
 Query overrides modify only a snapshot's execution defaults, never the codebook
-or the saved task. The evidence-first output protocol is unchanged.
+or the saved task. The enabled-field output order is unchanged; new prompts use cca-reference-v2. See PROMPTS.md.
 
 ## Bundled examples
 

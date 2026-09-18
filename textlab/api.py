@@ -34,7 +34,7 @@ async def lifespan(app):
     log.info("api_stopped")
 
 
-app = FastAPI(title="TextLab", version="0.9.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version="0.10.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -151,6 +151,27 @@ def delete_task(id: str):
 @app.post("/api/tasks/preview")
 def preview(task: Task):
     return messages(task, Query(model="preview"), "The text to classify goes here.")
+
+
+from pydantic import BaseModel, Field
+
+
+class PreviewRequest(BaseModel):
+    task: Task
+    query: Query = Field(default_factory=lambda: Query(model="preview"))
+    provider: Literal["openai", "ollama"] = "openai"
+    text: str = "The text to classify goes here."
+
+
+@app.post("/api/tasks/preview-request")
+def preview_request(spec: PreviewRequest):
+    from .jobs import resolved_task
+    from .llm import request_body
+    task = resolved_task(spec.task, spec.query)
+    profile = Profile(name="Preview", provider=spec.provider)
+    path, body = request_body(task, spec.query, profile, spec.text)
+    return {"prompt_protocol": spec.query.prompt_protocol, "path": path, "request": body,
+            "note": "Illustrative request using the selected preview settings; no model is called."}
 
 
 @app.get("/api/profiles")

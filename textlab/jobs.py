@@ -17,10 +17,9 @@ def snapshot_for(task_row, profile_row, query, text_column):
     task = resolved_task(Task.model_validate_json(task_row["spec"]), query)
     from .thinking import thinking_body
     thinking_body(Profile.model_validate_json(profile_row["spec"]), task.thinking, query.extra_body)
-    from .llm import PROMPT_PROTOCOL
-    return {"prompt_protocol": PROMPT_PROTOCOL, "task": task.model_dump(), "task_id": task_row["id"], "task_revision": task_row["revision"],
+    return {"prompt_protocol": query.prompt_protocol, "task": task.model_dump(), "task_id": task_row["id"], "task_revision": task_row["revision"],
             "profile": json.loads(profile_row["spec"]), "query": query.model_dump(), "text_column": text_column,
-            "framework_version": "0.9.0"}
+            "framework_version": "0.10.0"}
 
 
 def enqueue(db, name, dataset, snapshot, created=None):
