@@ -64,9 +64,7 @@ Complete required fields before saving.
 - Prompt preview: collapsed independently, generated from current unsaved values.
 
 No ambiguity_rule exists. Put such decisions in instructions or coding_notes.
-No allow_empty switch exists in tasks. Use an explicit none-applicable category.
-Gold data may still be registered independently with empty labels, but such data
-cannot start an evaluation against a CCA task until recoded appropriately.
+Multi-label tasks accept zero or more category IDs: [] means no category applies. Single-label tasks require exactly one ID. Gold registrations must enable empty gold cells to interpret blank cells as []. No task-level switch or schema change is needed.
 
 Saving, importing and prompt preview all run the same schema validation.
 Errors carry JSON pointers and appear beside affected editor fields.

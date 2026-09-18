@@ -66,7 +66,7 @@ def test_multilabel_single_category_and_empty_policy(client):
     task=from_codebook(d);assert task.mode=='multi'
     assert to_codebook(task)==d
     from textlab.models import validate_labels
-    with pytest.raises(ValueError,match='At least one'):validate_labels([],task)
+    validate_labels([],task)
     d=codebook();d['task']['categories']=d['task']['categories'][:1]
     assert client.post('/api/tasks/import-cca',json=d).status_code==201
 

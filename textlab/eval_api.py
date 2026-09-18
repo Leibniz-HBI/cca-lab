@@ -39,6 +39,15 @@ def gold_sets():
 
 @router.post('/gold-sets',status_code=201)
 def register_gold(spec: GoldSet):
+    return save_gold(spec)
+
+
+@router.put('/gold-sets/{id}')
+def edit_gold(id: str, spec: GoldSet):
+    return save_gold(spec, id)
+
+
+def save_gold(spec: GoldSet, edit_id=None):
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
         dataset = fetch(db,'datasets',spec.dataset_id)
@@ -49,8 +58,14 @@ def register_gold(spec: GoldSet):
             raise HTTPException(422,f'Evaluation datasets are limited to {limit} rows')
         if not {spec.doc_id_column,spec.text_column,spec.gold_column}.issubset(json.loads(dataset['columns_json'])):
             raise HTTPException(422,'Column mapping contains unknown columns')
-        id = uid()
-        db.execute('INSERT INTO gold_sets(id,dataset_id,spec,total,label_counts,created) VALUES(?,?,?,?,?,?)',(id,spec.dataset_id,spec.model_dump_json(),dataset['total'],'{}',time.time()))
+        existing = fetch(db, 'gold_sets', edit_id) if edit_id else None
+        used = existing and db.execute('SELECT 1 FROM evaluations WHERE gold_id=? LIMIT 1', (edit_id,)).fetchone()
+        id = uid() if not existing or used else edit_id
+        if existing and not used:
+            db.execute('DELETE FROM gold_rows WHERE gold_id=?', (id,))
+            db.execute('UPDATE gold_sets SET dataset_id=?,spec=?,total=? WHERE id=?', (spec.dataset_id,spec.model_dump_json(),dataset['total'],id))
+        else:
+            db.execute('INSERT INTO gold_sets(id,dataset_id,spec,total,label_counts,created) VALUES(?,?,?,?,?,?)',(id,spec.dataset_id,spec.model_dump_json(),dataset['total'],'{}',time.time()))
         seen, counts = set(), Counter()
         for row in db.execute('SELECT row_no,data FROM records WHERE dataset_id=? ORDER BY row_no',(spec.dataset_id,)):
             data = json.loads(row['data'])
@@ -67,7 +82,7 @@ def register_gold(spec: GoldSet):
             counts.update(labels)
             db.execute('INSERT INTO gold_rows VALUES(?,?,?,?)',(id,row['row_no'],doc_id,dumps(labels)))
         db.execute('UPDATE gold_sets SET label_counts=? WHERE id=?',(dumps(dict(counts)),id))
-    return {'id':id}
+    return {'id':id, 'revised_from':edit_id if used else None}
 
 
 @router.get('/gold-sets/{id}/preview')

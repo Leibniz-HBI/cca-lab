@@ -170,7 +170,7 @@ def confidence_chart(report,scope,kind,format='svg'):
             any_data=True
             x='confidence' if kind=='reliability' else 'actual_coverage';y='accuracy' if kind=='reliability' else 'risk'
             low=min(low,min(p[y]-(p['sd'] or 0) for p in points)); high=max(high,max(p[y]+(p['sd'] or 0) for p in points))
-            ax.errorbar([p[x] for p in points],[p[y] for p in points],yerr=[p['sd'] or 0 for p in points],marker='o',capsize=3,label=group['variant'])
+            ax.errorbar([p[x] for p in points],[p[y] for p in points],yerr=[p['sd'] or 0 for p in points] if group.get('expected_runs',1)>1 else None,marker='o',capsize=3,label=group['variant'])
         if kind=='reliability':ax.plot([0,1],[0,1],'--',color='gray')
         ax.set(xlabel='Self-reported confidence' if kind=='reliability' else 'Accepted fraction among valid scored predictions',ylabel='Exact-match accuracy' if kind=='reliability' else 'Error rate among accepted predictions',xlim=(0,1),ylim=(low-.02,high+.02),title='Reliability (10 fixed bins)' if kind=='reliability' else 'Risk–coverage (whole confidence ties)')
         ax.grid(alpha=.2)

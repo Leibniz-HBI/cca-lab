@@ -94,8 +94,6 @@ def validate_labels(labels, task):
         raise ValueError("Unknown or duplicate labels")
     if task.mode == "single" and len(labels) != 1:
         raise ValueError("Single-label tasks require exactly one label")
-    if not labels:
-        raise ValueError("At least one label is required")
 
 
 class Profile(StrictModel):

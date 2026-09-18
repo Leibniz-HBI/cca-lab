@@ -13,9 +13,9 @@ Version 0.4 adds repeated seeds, grouped mean/SD tables, error-bar charts and ex
 7. Start the evaluation. Each configuration becomes a persistent job; variants run sequentially with their configured request concurrency.
 8. Choose **Compare** to inspect quality, runtime, class metrics, confusion matrices, predictions and downloads. Pause/resume/cancel applies to eligible child runs. Each child also has an individual result view.
 
-Gold/task modes and label cardinalities are validated before any jobs are created. CCA tasks require at least one category ID; empty registered gold assignments must be recoded to an explicit codebook category before evaluation. Gold labels are not added to prompts. Keep manually authored few-shot examples separate from evaluation examples to avoid leakage.
+Gold/task modes and label cardinalities are validated before any jobs are created. Single-label tasks require exactly one category ID. Multi-label tasks accept an empty set when no category applies; enable empty cells in the gold registration to use blank gold assignments. Gold labels are not added to prompts. Keep manually authored few-shot examples separate from evaluation examples to avoid leakage.
 
-Gold registrations preserve normalized labels and column mappings. Register again to change a mapping. Default maximum: 50,000 gold rows (`TEXTLAB_MAX_EVAL_ROWS`) and 50 base configurations and 500 expanded runs per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
+Gold registrations preserve normalized labels and column mappings. Use Edit to change the name, source dataset, column mappings, label mode, separator or empty-cell policy. Unused registrations update in place; registrations referenced by evaluations are saved as new revisions, leaving existing evaluations and their gold data unchanged. Invalid edits roll back atomically. Default maximum: 50,000 gold rows (`TEXTLAB_MAX_EVAL_ROWS`) and 50 base configurations and 500 expanded runs per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
 
 ## Quality metrics
 
@@ -88,3 +88,7 @@ Prediction rows retain rationale, validated evidence with character offsets, ret
 | `DELETE /api/predictions/{id}` | Delete completed batch, child runs and files |
 
 Interactive request schemas are at `/docs`. There is no automatic hyperparameter optimization, cross-validation or confidence interval estimation. Add seeds as explicit variants for repeated runs.
+
+Single-run configurations display metric values without standard deviations or error bars. Repeated configurations retain means and sample SD. Raw report JSON retains the aggregate statistics.
+
+PUT /api/gold-sets/{id} accepts the same fields as registration and returns {id, revised_from}. A revised_from value indicates that a new registration was saved to preserve prior evaluations.

@@ -16,7 +16,7 @@ PROMPT_PROTOCOL = "cca-reference-v2"
 
 
 def output_schema(task):
-    labels_schema = {"type": "array", "items": {"type": "string", "enum": [c.id for c in task.categories]}, "minItems": 1, "maxItems": 1 if task.mode == "single" else len(task.categories), "uniqueItems": True}
+    labels_schema = {"type": "array", "items": {"type": "string", "enum": [c.id for c in task.categories]}, "minItems": 1 if task.mode == "single" else 0, "maxItems": 1 if task.mode == "single" else len(task.categories), "uniqueItems": True}
     properties = {}
     if task.evidence:
         properties["evidence"] = {"type": "array", "items": {"type": "object", "properties": {
@@ -63,7 +63,7 @@ def selected_examples(task, query):
 
 
 def messages(task, query, text):
-    assignment = "exactly one category ID" if task.mode == "single" else "one or more distinct category IDs"
+    assignment = "exactly one category ID" if task.mode == "single" else "zero or more distinct category IDs (use [] when no category applies)"
     sections = [
         "# Classification task\n" + task.codebook["title"] + "\n" + task.codebook["description"]
         + "\nUnit of analysis: " + task.unit_of_analysis + "\nAssignment: " + assignment + "."

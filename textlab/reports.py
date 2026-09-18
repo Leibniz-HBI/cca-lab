@@ -32,14 +32,15 @@ def metric_rows(report,scope,classes=False,individual=False):
         def add(values,sd,counts):
             for k,v in values.items():
                 base[k]=v
-                if not individual and 'std' in run:
+                if not individual and run.get('expected_runs',1)>1:
                     base[k+'_sd']=sd.get(k);base[k+'_runs']=counts.get(k)
         add({k:run.get(k) for k in ('n','gold_n','valid_n','fallback_n','failed_n','unprocessed_n','coverage','output_coverage','accuracy_all')},run.get('std',{}),run.get('sample_n',{}))
         add(run.get('runtime',{}),run.get('std',{}).get('runtime',{}),run.get('sample_n',{}).get('runtime',{}))
         if classes:
             for row in run['per_class']:
                 out={**base,**{k:v for k,v in row.items() if k not in ('std','sample_n')}}
-                out.update({k+'_sd':v for k,v in row.get('std',{}).items()});out.update({k+'_runs':v for k,v in row.get('sample_n',{}).items()})
+                if run.get('expected_runs',1)>1:
+                    out.update({k+'_sd':v for k,v in row.get('std',{}).items()});out.update({k+'_runs':v for k,v in row.get('sample_n',{}).items()})
                 yield out
         else:
             add(run['summary'],run.get('std',{}).get('summary',{}),run.get('sample_n',{}).get('summary',{}))
@@ -81,7 +82,10 @@ def render_chart(report,scope,kind='overview',metric='f1_macro',job_id=None,form
             plotted=[v if v is not None else 0 for v in values]
             deviations=[r.get('std',{}).get(metric,r.get('std',{}).get('summary',{}).get(metric,r.get('std',{}).get('runtime',{}).get(metric))) for r in runs]
             errors=[v or 0 for v in deviations]
-            bars=ax.barh(range(len(runs)),plotted,xerr=errors,capsize=4,color=['#007f87' if v is not None else '#bac5d1' for v in values],height=.6)
+            bars=ax.barh(range(len(runs)),plotted,xerr=None,capsize=4,color=['#007f87' if v is not None else '#bac5d1' for v in values],height=.6)
+            for i,(value,sd) in enumerate(zip(plotted,deviations)):
+                if runs[i].get('expected_runs',1)>1 and sd is not None:
+                    ax.errorbar(value,i,xerr=sd,fmt='none',capsize=4,color='black')
             ax.set_yticks(range(len(runs)),[r['variant'] for r in runs])
             ax.invert_yaxis()
             for bar,value in zip(bars,values):
@@ -89,7 +93,7 @@ def render_chart(report,scope,kind='overview',metric='f1_macro',job_id=None,form
             is_runtime=metric.endswith('_seconds') or metric.endswith('_per_second')
             ax.set_xlim(min([v-e for v,e in zip(plotted,errors)]+[0])*1.15,max([v+e for v,e in zip(plotted,errors)]+[0.01])*1.25 if is_runtime else max(1.17,max([v+e for v,e in zip(plotted,errors)]+[0])*1.15))
             ax.set_xlabel(metric)
-            ax.set_title('Model configuration comparison · mean ± sample SD',loc='left',fontweight='bold')
+            ax.set_title('Model configuration comparison'+(' · mean ± sample SD' if any(r.get('expected_runs',1)>1 for r in runs) else ''),loc='left',fontweight='bold')
         elif kind=='classes':
             if metric not in ('precision','recall','f1','accuracy','specificity','kappa','mcc'):
                 raise ValueError('Unknown class metric')
@@ -101,9 +105,9 @@ def render_chart(report,scope,kind='overview',metric='f1_macro',job_id=None,form
                 values=np.array([r[metric] if r[metric] is not None else np.nan for r in rows])
                 errors=[r.get('std',{}).get(metric) or 0 for r in rows]
                 offset=(index-(len(runs)-1)/2)*.7/max(1,len(runs))
-                ax.errorbar(values,np.arange(len(labels))+offset,xerr=errors,fmt='o',capsize=3,label=run['variant'],markersize=4)
+                ax.errorbar(values,np.arange(len(labels))+offset,xerr=errors if run.get('expected_runs',1)>1 else None,fmt='o',capsize=3,label=run['variant'],markersize=4)
             ax.set_yticks(range(len(labels)),labels);ax.invert_yaxis()
-            ax.set_xlabel(metric+' · mean ± sample SD')
+            ax.set_xlabel(metric+(' · mean ± sample SD' if any(r.get('expected_runs',1)>1 for r in runs) else ''))
             ax.legend(loc='upper left',bbox_to_anchor=(1,1),fontsize=8)
             ax.set_title('Class comparison'+(' · first 40 classes' if len(report['labels'])>40 else ''),loc='left',fontweight='bold')
         elif kind=='confusion':
@@ -161,7 +165,8 @@ def confidence_rows(report,scope):
         row={'configuration':group['variant'],'group_id':group['group_id']}
         for metric,values in group.get('confidence',{}).get('metrics',{}).items():
             for stat,value in values.items():
-                row[metric+'_'+stat]=value
+                if stat!='sd' or group.get('expected_runs',1)>1:
+                    row[metric+'_'+stat]=value
         rows.append(row)
     return rows
 
@@ -181,7 +186,7 @@ def html_report(report,scope):
 <style>body{{font:16px/1.6 system-ui;color:#172438;max-width:1400px;margin:40px auto;padding:0 25px}}h1,h2{{line-height:1.3}}h1{{color:#007f87}}.table{{overflow:auto;margin:25px 0}}table{{border-collapse:collapse;font-size:13px}}th,td{{padding:8px 12px;border:1px solid #dce3ec;text-align:left;white-space:nowrap}}th{{background:#edf4f7}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef3f7;padding:20px}}@media print{{body{{margin:0}}.table{{overflow:visible}}table{{font-size:9px}}th,td{{padding:3px}}}}</style></head><body>
 <h1>{title}</h1><p>TextLab {__version__} · Evaluation report · {html.escape(scope)} · Gold documents: {report['gold']['total']} · Common assigned documents: {report['common_n']}</p>
 <p>{html.escape(report['policies'][scope])}</p><h2>Model comparison</h2>{html_table(metric_rows(report,scope))}{images}<h2>Results by class</h2>{html_table(metric_rows(report,scope,True))}
-<h2>Confidence metrics (mean and sample SD)</h2>{html_table(confidence_rows(report,scope))}<h2>Scoring conventions</h2>{notes}<h2>Configuration and reproducibility</h2><pre>{html.escape(json.dumps({k:v for k,v in report.items() if k!='scopes'},ensure_ascii=False,indent=2))}</pre>
+<h2>Confidence metrics</h2>{html_table(confidence_rows(report,scope))}<h2>Scoring conventions</h2>{notes}<h2>Configuration and reproducibility</h2><pre>{html.escape(json.dumps({k:v for k,v in report.items() if k!='scopes'},ensure_ascii=False,indent=2))}</pre>
 {''.join('<h3>'+html.escape(r['variant'])+'</h3><pre>'+html.escape(json.dumps(r['snapshot'],ensure_ascii=False,indent=2))+'</pre>' for r in report['scopes'][scope]['runs'])}
 </body></html>'''
 

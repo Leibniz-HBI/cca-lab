@@ -9,9 +9,9 @@ function parseSeedInput(value){
  if(seeds.length>100)throw Error('Maximum 100 seeds.');
  return seeds;
 }
-function meanSD(run,key,section){
+function meanSD(run,key,section,expectedRuns=run.expected_runs){
  const value=section?run[section]?.[key]:run[key],sd=section?run.std?.[section]?.[key]:run.std?.[key],n=section?run.sample_n?.[section]?.[key]:run.sample_n?.[key];
- return `<span title="${n??1} defined run(s)">${metricNumber(value)}${run.std?' ± '+metricNumber(sd):''}</span>`;
+ return `<span title="${n??1} defined run(s)">${metricNumber(value)}${run.std&&expectedRuns>1&&sd!=null?' ± '+metricNumber(sd):''}</span>`;
 }
 async function loadErrors(first=false){
  if(!selectedJob)return;
