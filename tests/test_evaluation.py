@@ -225,18 +225,6 @@ def test_inline_thinking_and_empty_final_answer(monkeypatch):
             r = classify(snapshot, 'a', c)
         assert r['status'] == status and r['thinking'] == 'server trace' and (r['raw'] == content)
 
-def test_migration_preserves_legacy_results(tmp_path, monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA', str(tmp_path))
-    db = sqlite3.connect(tmp_path / 'textlab.sqlite')
-    db.executescript('CREATE TABLE results(job_id TEXT,row_no INTEGER,labels TEXT,rationale TEXT,status TEXT,error TEXT,raw TEXT,attempts INTEGER,seconds REAL,prompt_tokens INTEGER,completion_tokens INTEGER,PRIMARY KEY(job_id,row_no));\n    INSERT INTO results VALUES(\'legacy\',1,\'["A"]\',NULL,\'ok\',NULL,\'{}\',1,1,0,0);')
-    db.close()
-    init()
-    init()
-    with connect() as db:
-        row = dict(db.execute('SELECT * FROM results').fetchone())
-        assert row['labels'] == '["A"]' and row['evidence'] == '[]' and (row['thinking'] is None)
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
-
 def test_cancelled_evaluation_report_includes_unprocessed(client):
     gold, task, profile, _ = setup(client)
     spec = {'name': 'cancel', 'gold_id': gold, 'task_id': task, 'variants': [{'name': 'v', 'profile_id': profile, 'query': {'model': 'mock'}}]}

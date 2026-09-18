@@ -36,4 +36,4 @@ Child jobs remain within their parent evaluation/prediction rather than appearin
 
 `POST /api/predictions` now accepts optional `source_evaluation_job_id`. With this field, `task_ids` must contain exactly the evaluated task ID, and the saved task/connection are loaded from that run. The required `profile_id` may be `"snapshot"` because the source run supplies the connection. The request's query, seeds, target dataset and text column control the new run. Without the source field, the previous API behavior is unchanged.
 
-Job list/detail responses expose parent `evaluation_id` and `prediction_id` for organizing results. Database schema remains version 4; no new schema migration is required for this release. Stop both processes, replace/rebuild the application and restart using your existing data volume. Reload the browser to load the new frontend.
+Job list/detail responses expose parent `evaluation_id` and `prediction_id` for organizing results. Startup validates database schema 6 without migrating it. Stop both processes, replace/rebuild the application and restart using your existing data volume. Reload the browser to load the new frontend.

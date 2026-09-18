@@ -62,13 +62,7 @@ def selected_examples(task, query):
     return result
 
 
-def messages(task, query, text, protocol=None):
-    protocol = protocol or query.prompt_protocol
-    if protocol == "evidence-first-v1":
-        from .legacy_prompt import messages as legacy_messages
-        return legacy_messages(task, query, text)
-    if protocol != PROMPT_PROTOCOL:
-        raise ValueError("Unknown prompt protocol")
+def messages(task, query, text):
     assignment = "exactly one category ID" if task.mode == "single" else "one or more distinct category IDs"
     sections = [
         "# Classification task\n" + task.codebook["title"] + "\n" + task.codebook["description"]
@@ -114,14 +108,9 @@ def messages(task, query, text, protocol=None):
             {"role": "user", "content": dumps({"text": text})}]
 
 
-def request_body(task, query, profile, text, protocol=None):
+def request_body(task, query, profile, text):
     """Shared by execution and preview; excludes authentication headers."""
-    protocol = protocol or query.prompt_protocol
-    if protocol == "evidence-first-v1":
-        from .legacy_prompt import output_schema as schema_for
-    else:
-        schema_for = output_schema
-    body = {"model": query.model, "messages": messages(task, query, text, protocol),
+    body = {"model": query.model, "messages": messages(task, query, text),
             "stream": False, **thinking_body(profile, task.thinking, query.extra_body)}
     if profile.provider == "ollama":
         opts = {"temperature": query.temperature, "top_p": query.top_p, "num_predict": query.max_tokens}
@@ -129,20 +118,20 @@ def request_body(task, query, profile, text, protocol=None):
             opts["seed"] = query.seed
         body["options"] = opts
         if query.structured_output != "none":
-            body["format"] = schema_for(task) if query.structured_output == "json_schema" else "json"
+            body["format"] = output_schema(task) if query.structured_output == "json_schema" else "json"
         return "/api/chat", body
     body.update(temperature=query.temperature, top_p=query.top_p, max_tokens=query.max_tokens)
     if query.seed is not None:
         body["seed"] = query.seed
     if query.structured_output == "json_schema":
         body["response_format"] = {"type": "json_schema", "json_schema": {
-            "name": "classification", "strict": True, "schema": schema_for(task)}}
+            "name": "classification", "strict": True, "schema": output_schema(task)}}
     elif query.structured_output == "json_object":
         body["response_format"] = {"type": "json_object"}
     return "/chat/completions", body
 
 
-def example_response(task, text, labels, rationale, confidence=1.0):
+def mock_response(task, text, labels, rationale, confidence=1.0):
     """Synthetic demo/test response only; never used to annotate reference examples."""
     response = {}
     if task.evidence:
@@ -160,7 +149,7 @@ def example_response(task, text, labels, rationale, confidence=1.0):
     return response
 
 
-def parse_result(raw, task, text=None, protocol=PROMPT_PROTOCOL):
+def parse_result(raw, task, text=None):
     obj = json.loads(raw)
     expected = ({"candidate_interpretations"} if task.alternatives else set()) | ({"self_reported_confidence"} if task.confidence else set()) | {"labels"} | ({"rationale"} if task.rationale else set()) | ({"evidence"} if task.evidence else set())
     if not isinstance(obj, dict) or set(obj) != expected:
@@ -202,7 +191,7 @@ def parse_result(raw, task, text=None, protocol=PROMPT_PROTOCOL):
             if key in seen:
                 raise ValueError("Candidate label sets must be distinct")
             seen.add(key)
-            if not isinstance(alt['boundary_note'], str) or (protocol == 'evidence-first-v1' and not alt['boundary_note'].strip()) or not isinstance(alt['justification'], str) or not alt['justification'].strip():
+            if not isinstance(alt['boundary_note'], str) or not isinstance(alt['justification'], str) or not alt['justification'].strip():
                 raise ValueError("Candidates need justification and boundary note")
             quotes = alt['supporting_quotes']
             if not isinstance(quotes, list) or any(not isinstance(q, str) or not q.strip() or text is None or q not in text for q in quotes):
@@ -251,19 +240,17 @@ def classify(snapshot, text, client):
             result["error"] = "Text exceeds max_text_chars"
             return result
         text = text[:query.max_text_chars]
-    protocol = snapshot.get("prompt_protocol", query.prompt_protocol)
-    path, body = request_body(task, query, profile, text, protocol)
+    if snapshot.get("prompt_protocol", PROMPT_PROTOCOL) != PROMPT_PROTOCOL:
+        raise ValueError("Unsupported prompt protocol")
+    path, body = request_body(task, query, profile, text)
     for attempt in range(query.retries + 1):
         logging.getLogger(__name__).debug("llm_attempt task_id=%s attempt=%s max_attempts=%s", snapshot.get("task_id"), attempt+1, query.retries+1)
         result["attempts"] += 1
-        output = {"prompt_protocol": protocol, "attempt": attempt + 1, "started_at": time.time(), "content": None, "thinking": None, "error": None}
+        output = {"prompt_protocol": PROMPT_PROTOCOL, "attempt": attempt + 1, "started_at": time.time(), "content": None, "thinking": None, "error": None}
         result["attempt_outputs"].append(output)
         try:
             if profile.provider == "mock":
-                demo_response = example_response
-                if protocol == "evidence-first-v1":
-                    from .legacy_prompt import example_response as demo_response
-                obj = demo_response(task, text, [task.categories[0].id],
+                obj = mock_response(task, text, [task.categories[0].id],
                     "Demo model: always the first category; no semantic classification.", confidence=0.5)
                 raw = dumps(obj)
             else:
@@ -293,7 +280,7 @@ def classify(snapshot, text, client):
                     raw = match.group(2)
             result["thinking"] = output["thinking"] if isinstance(output["thinking"], str) else (dumps(output["thinking"]) if output["thinking"] is not None else None)
             result["raw"] = output["content"] if isinstance(output["content"], (str, type(None))) else dumps(output["content"])
-            parsed = parse_result(raw, task, text, protocol)
+            parsed = parse_result(raw, task, text)
             result.update(candidate_interpretations=parsed.get("candidate_interpretations", []), self_reported_confidence=parsed.get("self_reported_confidence"), alternative_interpretations=parsed.get("alternative_interpretations", []), labels=parsed["labels"], rationale=parsed.get("rationale"), evidence=parsed.get("evidence", []), status="ok", error=None)
             break
         except (ValueError, KeyError, IndexError, TypeError, httpx.HTTPError) as exc:

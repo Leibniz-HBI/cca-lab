@@ -1,4 +1,4 @@
-# CCA Schema 0.1 reference implementation — TextLab 0.9
+# CCA Schema 0.1 reference implementation
 
 The uploaded CCA Schema 0.1 JSON Schema is bundled unchanged at
 textlab/schemas/cca-schema-0.1.schema.json. It is the validation authority.

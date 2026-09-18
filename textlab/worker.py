@@ -151,6 +151,12 @@ def pulse():
         stopping.wait(2)
 
 
+def recover_interrupted_work():
+    with connect() as db:
+        db.execute("UPDATE jobs SET runtime_complete=0,active_since=NULL WHERE active_since IS NOT NULL")
+        db.execute("UPDATE predictions SET artifact_status='pending' WHERE artifact_status='building'")
+
+
 def main():
     from .logging_config import configure_logging
     configure_logging()
@@ -160,9 +166,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise SystemExit("A worker is already running for this data directory")
-    with connect() as db:
-        db.execute("UPDATE jobs SET runtime_complete=0,active_since=NULL WHERE active_since IS NOT NULL")
-        db.execute("UPDATE predictions SET artifact_status='pending' WHERE artifact_status='building'")
+    recover_interrupted_work()
     signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     signal.signal(signal.SIGINT, lambda *_: stopping.set())
     thread = threading.Thread(target=pulse, daemon=True)

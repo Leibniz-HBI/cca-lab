@@ -1,6 +1,6 @@
-# Prompt compilation — TextLab 0.10
+# Prompt compilation
 
-New experiments use cca-reference-v2. The order of enabled output fields remains
+Experiments use cca-reference-v2. The order of enabled output fields remains
 evidence → candidate_interpretations → rationale → labels → self_reported_confidence.
 
 ## Prompt structure
@@ -53,34 +53,8 @@ POST /api/tasks/preview still returns messages.
 POST /api/tasks/preview-request accepts {task, query?, provider?, text?} and returns
 {prompt_protocol, path, request, note}. Provider is openai or ollama.
 
-## Paired evaluation
+## Protocol provenance
 
-scripts/compare_prompts.py takes an ordinary evaluation request JSON with an
-existing task ID, held-out gold ID, variants and seeds. It duplicates each variant
-for evidence-first-v1 and cca-reference-v2, preserving other parameters.
+cca-reference-v2 is the only supported compiler. Its identifier is recorded in snapshots and attempt logs. The query metadata field accepts only this fixed value; it is not a selectable compiler. Current saved snapshots remain readable without rewriting them.
 
-    python scripts/compare_prompts.py evaluation.json
-    python scripts/compare_prompts.py evaluation.json --start --api http://127.0.0.1:8080
-
-Without --start it only prints the request. --start creates and runs an evaluation,
-which consumes model queries. Up to 25 base configurations expand to 50 variants;
-normal total-run limits still apply. Query count includes both protocols.
-
-Use the same held-out data, task, models, parameter configurations and seeds.
-Enable confidence on the task before starting if confidence diagnostics are needed.
-Compare classification metrics and coverage, confidence diagnostics, runtime,
-and token usage. Error-log exports distinguish validation failures, recovered retries,
-transport errors and terminal failures; terminal failure rate alone is not an
-invalid-response rate. Count validation-failed attempts / all attempts separately
-when assessing output validity. Record warm-up/model-loading/order effects when
-interpreting runtime; the worker executes variants sequentially.
-
-Protocol IDs are stored in job snapshots and attempt logs and separate seed
-aggregation groups. Existing evaluation tables, confidence plots and export bundles
-support the paired variants. Historical 0.9 jobs retain the old compiler; no old
-results or codebooks are rewritten.
-
-No empirical accuracy or calibration improvement is claimed by this release.
-The test suite and mock-provider browser check verify implementation behavior,
-not model quality. Run the paired evaluation on your models before adopting the
-new prompt for a substantive study.
+Prompt formatting is tested for implementation correctness; no empirical accuracy or calibration gain is claimed.

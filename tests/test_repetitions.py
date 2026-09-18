@@ -61,7 +61,7 @@ def test_fallback_after_attempts_preserves_errors_and_thinking(monkeypatch):
         Task(**task_spec(TASK, default_label='UNKNOWN'))
     assert Task(**task_spec(TASK, default_label='B', mode='multi')).default_label == 'B'
 
-def test_live_error_log_pagination_recovered_and_migration(client, monkeypatch):
+def test_live_error_log_pagination_and_recovered_attempts(client, monkeypatch):
     did, tid, pid, _ = setup(client)
     job = client.post('/api/jobs', json={'name': 'Errors', 'dataset_id': did, 'task_id': tid, 'profile_id': pid, 'text_column': 'text', 'query': {'model': 'm', 'concurrency': 1}}).json()['id']
     import textlab.worker as w
@@ -91,14 +91,6 @@ def test_live_error_log_pagination_recovered_and_migration(client, monkeypatch):
     j = client.get('/api/jobs/' + job).json()
     assert j['failed'] == 1 and j['fallback_count'] == 1
     assert client.get('/api/jobs/missing/errors').status_code == 404
-    with connect() as db:
-        db.execute('DROP INDEX result_errors')
-        db.execute('ALTER TABLE results DROP COLUMN error_count')
-    init()
-    init()
-    assert client.get(f'/api/jobs/{job}/errors').json()['total'] == 2
-    with connect() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
     parquet = pq.read_table(io.BytesIO(client.get(f'/api/jobs/{job}/export?format=parquet').content))
     assert parquet['classification.fallback_used'].to_pylist() == [True, False]
 

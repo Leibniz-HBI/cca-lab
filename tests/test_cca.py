@@ -130,13 +130,13 @@ def test_every_write_and_preview_validates_codebook(client, mutation, path):
     assert len(saved)==1 and saved[0]['revision']==1 and saved[0]['spec']['codebook']==codebook()
 
 
-def test_no_legacy_fields_and_fallback_uses_id(client):
-    for legacy in [{'name':'Old task','instructions':'Code','categories':[]},
+def test_unsupported_task_fields_and_fallback_uses_id(client):
+    for invalid in [{'name':'Old task','instructions':'Code','categories':[]},
                    {'codebook':codebook(),'ambiguity_rule':'Rule'},
                    {'codebook':codebook(),'cca_source':codebook()},
                    {'codebook':codebook(),'execution_defaults':{'allow_empty':True}},
                    {'codebook':codebook(),'execution_defaults':{'default_label':'Positive'}}]:
-        assert client.post('/api/tasks',json=legacy).status_code==422
+        assert client.post('/api/tasks',json=invalid).status_code==422
     assert client.post('/api/tasks',json={'codebook':codebook(),'execution_defaults':{'default_label':'101'}}).status_code==201
 
 

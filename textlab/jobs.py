@@ -1,3 +1,4 @@
+from . import __version__
 import json
 import time
 
@@ -19,7 +20,7 @@ def snapshot_for(task_row, profile_row, query, text_column):
     thinking_body(Profile.model_validate_json(profile_row["spec"]), task.thinking, query.extra_body)
     return {"prompt_protocol": query.prompt_protocol, "task": task.model_dump(), "task_id": task_row["id"], "task_revision": task_row["revision"],
             "profile": json.loads(profile_row["spec"]), "query": query.model_dump(), "text_column": text_column,
-            "framework_version": "0.10.0"}
+            "framework_version": __version__}
 
 
 def enqueue(db, name, dataset, snapshot, created=None):

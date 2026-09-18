@@ -123,7 +123,7 @@ class Profile(StrictModel):
 
 
 class Query(StrictModel):
-    prompt_protocol: Literal["cca-reference-v2", "evidence-first-v1"] = "cca-reference-v2"
+    prompt_protocol: Literal["cca-reference-v2"] = "cca-reference-v2"
     model: str = Field(min_length=1, max_length=300)
     concurrency: int = Field(default=4, ge=1, le=128)
     retries: int = Field(default=2, ge=0, le=10)

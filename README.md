@@ -1,53 +1,6 @@
-# TextLab 0.10.0
+# TextLab
 
-## New in 0.10 — readable prompts and faithful examples
-
-Structured prompt sections, bullet criteria, and codebook examples containing only
-their supplied annotations. Native JSON Schema requests avoid embedding a duplicate
-schema in the prompt. Criteria use two multiline editors; CCA 0.1 remains unchanged.
-Prompt preview displays readable message panels and the raw provider request.
-
-New jobs use cca-reference-v2; 0.9 snapshots keep evidence-first-v1.
-See [PROMPTS.md](PROMPTS.md) for formatting, upgrade behavior and paired comparison.
-
-## New in 0.9 — CCA schema-first tasks
-
-CCA Schema 0.1 is now the authoritative coding instrument throughout storage, editing, prompts, snapshots and exports. Create task provides native form controls for identity, provenance, coding instructions, categories, criteria, references and examples. Execution defaults are separate; validation errors identify the affected fields. Prompt preview has its own collapsible section.
-
-**For installations older than 0.9:** no migration from the earlier task format is provided. Use an empty data directory or a new Docker volume. Import CCA codebooks into the new instance. See [CCA.md](CCA.md) and [UPGRADE.md](UPGRADE.md).
-
-CCA import survives background refresh, with persistent feedback and request-correlated diagnostics. See [LOGGING.md](LOGGING.md).
-
-## New in 0.8
-
-Import and export CCA Schema 0.1 codebooks from the task library. Category IDs remain output labels; display names, criteria, context, examples and provenance are preserved. See [CCA.md](CCA.md).
-
-## New in 0.7
-
-Fixed evidence-first generation: evidence → candidate interpretations → rationale → labels → confidence (enabled fields). Evidence may refer to competing categories; final labels must match one candidate. Full candidates are stored and alternatives are derived by the backend. No configurable ordering. See [UNCERTAINTY.md](UNCERTAINTY.md).
-
-## New in 0.6
-
-Optional self-reported confidence and structured competing interpretations; per-document seed agreement with durable prediction exports; confidence metrics, reliability and risk–coverage plots with means/SD; live planned query counts and retry ceilings. See [UNCERTAINTY.md](UNCERTAINTY.md).
-
-A self-hosted Python workbench for LLM text classification, multi-task prediction and gold-standard evaluation. FastAPI serves an English web interface; a separate worker sends bounded parallel requests to Ollama or an OpenAI-compatible API such as vLLM. SQLite WAL stores tasks, datasets, job snapshots and results.
-
-## New in 0.5
-
-Five numbered research steps: **Define tasks → Prepare data → Evaluate & refine → Run predictions → Analyze & export**. Corpus and gold datasets are grouped together; Jobs & monitoring is separate, and LLM connections are under Configuration at the bottom of the sidebar.
-
-Contextual shortcuts preselect tasks/datasets, revise evaluated codebooks and transfer evaluated configurations to prediction while preserving task and connection snapshots. The new results hub brings completed reports and downloads together.
-
-See [WORKFLOW.md](WORKFLOW.md) for behavior and upgrade details.
-
-## Included from 0.4
-
-- Inspect and download job error logs while jobs run, including recovered retry failures and raw attempt outputs.
-- Set an optional task default label for failed LLM classifications; fallback labels remain explicitly flagged and counted.
-- Enter semicolon-separated seeds for evaluation and prediction. Each seed creates an independent run.
-- Compare repeated evaluations with means, sample standard deviations and error bars; retain individual runs. Prediction exports identify every task/seed run.
-
-See [REPETITIONS.md](REPETITIONS.md) for workflow, statistical conventions and API examples.
+A Python workbench for reproducible LLM-based content analysis using CCA Schema codebooks.
 
 ## Core features
 

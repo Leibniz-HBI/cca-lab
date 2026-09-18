@@ -1,3 +1,4 @@
+from . import __version__
 import logging
 import uuid
 import csv
@@ -34,7 +35,7 @@ async def lifespan(app):
     log.info("api_stopped")
 
 
-app = FastAPI(title="TextLab", version="0.10.0", lifespan=lifespan)
+app = FastAPI(title="TextLab", version=__version__, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -74,7 +75,7 @@ def spec_row(row):
 def health():
     with connect() as db:
         row = db.execute("SELECT heartbeat FROM worker_state WHERE id=1").fetchone()
-    return {"api": "ok", "worker_online": bool(row and time.time() - row[0] < 15)}
+    return {"api": "ok", "version": __version__, "worker_online": bool(row and time.time() - row[0] < 15)}
 
 
 @app.get("/api/tasks")

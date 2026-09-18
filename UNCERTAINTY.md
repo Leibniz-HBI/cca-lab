@@ -1,4 +1,4 @@
-# Confidence, ambiguity and experiment size — TextLab 0.10
+# Confidence, ambiguity and experiment size
 
 ## Fixed evidence-first generation
 
@@ -52,7 +52,7 @@ Self-reported confidence is a finite number between 0 and 1, estimating exact ag
 
 JSON object order is not a semantic JSON constraint. TextLab requests the fixed generation sequence everywhere but does not reject an otherwise valid response solely because a provider returns its properties in another order, or pretend that reserializing a completed answer changes generation. Raw responses are preserved for auditing actual order. Backend compliance and quality gains require testing with the selected model; this release does not establish better classification performance.
 
-New job snapshots and inference attempt logs identify the fixed protocol as `evidence-first-v1`. It is not a task/query option. Increase maximum output tokens when using rich candidates and evidence. No extra LLM calls are added, so query-count estimates are unchanged.
+New job snapshots and inference attempt logs identify the fixed protocol as `cca-reference-v2`. It is not a task/query option. Increase maximum output tokens when using rich candidates and evidence. No extra LLM calls are added, so query-count estimates are unchanged.
 
 ## Storage and downloads
 
@@ -99,8 +99,3 @@ The preview also sums the maximum attempts including each configuration's retry 
 
 These counts are workload estimates, not time forecasts. Empty/rejected texts may make no request, cancellation reduces work, and model loading, context length, generated tokens and server batching affect runtime. Richer alternatives/confidence are requested in the same classification query, not a separate critic call. Actual requests and runtime remain tracked by the existing worker.
 
-## Upgrade
-
-Stop API and worker and back up the complete data volume, then install/rebuild and restart both with the same data location. Schema version 6 adds an empty-default candidate column to the existing confidence/alternatives fields. Historical outputs remain unchanged; old saved prediction artifacts are retained, and new batches include the new fields/files. Older report snapshots have no confidence diagnostics and display n/a; agreement can still be computed from their saved primary labels. Reload the browser. See UPGRADE.md.
-
-Historical alternatives remain untouched; they are not retroactively reconstructed into candidate lists. Old completed results therefore have empty candidates. Finish existing jobs using the old worker before upgrading when consistent inference protocols within an experiment are required. For 0.9 snapshots, 0.10 preserves the evidence-first-v1 compiler on resume and evaluated-configuration reuse. New jobs use cca-reference-v2. See PROMPTS.md for paired comparisons.

@@ -5,9 +5,6 @@ ccaFile.id='cca-file';ccaFile.type='file';ccaFile.accept='.json,application/json
 ccaFile.style.display='none';document.body.appendChild(ccaFile);
 let ccaImportBusy=false,ccaImportMessage='';
 function ccaStatus(message){ccaImportMessage=message;const el=$('#cca-import-status');if(el)el.textContent=message;}
-const baseRenderTasks=renderTasks;
-renderTasks=function(){baseRenderTasks();$('#view').insertAdjacentHTML('afterbegin','<div class="actions spaced"><button data-action="cca-import">Import CCA codebook JSON</button><span class="small">CCA 0.1 · category IDs become output labels</span><span id="cca-import-status" role="status"></span></div>');ccaStatus(ccaImportMessage);$('[data-action=cca-import]').disabled=ccaImportBusy;document.querySelectorAll('[data-action="download-task"]').forEach(b=>b.insertAdjacentHTML('afterend',`<button data-action="cca-export" data-id="${b.dataset.id}">CCA JSON ↓</button>`));};
-'use strict';
 function newCodebookId(){
  if(crypto.randomUUID)return 'urn:uuid:'+crypto.randomUUID();
  const bytes=crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
