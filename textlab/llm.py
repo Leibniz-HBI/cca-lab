@@ -227,7 +227,8 @@ def available_models(profile):
 
 def classify(snapshot, text, client):
     task = Task.model_validate(snapshot["task"])
-    query = Query.model_validate(snapshot["query"])
+    from .jobs import snapshot_query
+    query = snapshot_query(snapshot)
     profile = Profile.model_validate(snapshot["profile"])
     task = resolved_task(task, query)
     started = time.monotonic()

@@ -63,13 +63,12 @@ categoryHTML=function(c={}){
 taskEditor=function(id,seedSpec=null){
  const existing=state.tasks.find(t=>t.id===id),t=existing?.spec||seedSpec;
  const c=t?.codebook||{$schema:CCA_SCHEMA,id:newCodebookId(),version:'0.1.0',title:'',description:'',task:{instructions:'',unit_of_analysis:'document',classification_mode:'single_label',categories:[{id:'',label:'',definition:''}]}};
- const d=t?.execution_defaults||{},task=c.task;
+ const task=c.task;
  openEditor(existing?'Edit task':'Create task',
  '<section class="cca-section"><h3>Codebook identity</h3>'+ccaField('Title','title',c.title,'text',true)+ccaArea('Description','description',c.description,true)+'<div class="grid">'+ccaField('Stable codebook ID','codebook_id',c.id,'text',true)+ccaField('Codebook version','codebook_version',c.version,'text',true)+'</div><p class="small">CCA Schema 0.1 · Codebook version is independent of the automatic TextLab revision.</p><details><summary>Language, provenance and references</summary>'+ccaField('Language (optional, e.g. en or de)','language',c.language||'')+listItems('authors',c.authors||[],'Authors')+listItems('maintainers',c.maintainers||[],'Maintainers')+'<div class="grid">'+ccaField('Created date','created_at',c.created_at||'','date')+ccaField('Modified date','modified_at',c.modified_at||'','date')+'</div><div class="section-title"><strong>References</strong><button type="button" data-action="cca-add-reference">+ Reference</button></div><div id="cca-references">'+(c.references||[]).map(referenceHTML).join('')+'</div></details></section>'+
  '<section class="cca-section"><h3>Coding instructions</h3>'+ccaArea('General coding instructions','instructions',task.instructions,true)+'<div class="grid">'+ccaField('Unit of analysis','unit_of_analysis',task.unit_of_analysis,'text',true)+select('Classification mode','classification_mode',option('single_label','Single label',task.classification_mode)+option('multi_label','Multi-label',task.classification_mode))+'</div>'+ccaArea('Permitted additional context (optional)','context',task.context||'')+'</section>'+
  '<section class="cca-section"><div class="section-title"><h3>Categories</h3><button type="button" data-action="add-category">+ Category</button></div><p class="small">Predictions use category IDs. Define an explicit category for “none applicable” if your codebook requires it.</p><div id="categories">'+task.categories.map(categoryHTML).join('')+'</div></section>'+
  '<section class="cca-section"><div class="section-title"><h3>Examples</h3><button type="button" data-action="cca-add-example">+ Example</button></div><div id="cca-examples">'+(c.examples||[]).map(exampleHTML).join('')+'</div></section>'+
- '<details class="cca-section"><summary>TextLab execution defaults</summary><p class="small">These settings are stored separately from the CCA codebook.</p>'+[['rationale','Generate rationale'],['evidence','Extract verbatim evidence'],['alternatives','Compare candidate interpretations'],['confidence','Self-reported confidence (uncalibrated)']].map(([k,label])=>'<label><input type="checkbox" name="'+k+'" '+(d[k]?'checked':'')+'>'+label+'</label>').join('')+thinkingSelect('thinking',d.thinking||'default')+'<label>Fallback category after failed LLM attempts<select name="default_label" data-selected="'+esc(d.default_label||'')+'"></select><small>Fallback results remain flagged as errors.</small></label></details>'+
  '<details class="cca-section"><summary>Prompt preview</summary><div class="grid"><label>Preview provider<select name="preview_provider"><option value="openai">OpenAI-compatible</option><option value="ollama">Ollama</option></select></label><label>Output format<select name="preview_mode"><option value="json_schema">Native JSON Schema</option><option value="json_object">JSON object</option><option value="none">Prompt only</option></select></label></div><button type="button" data-action="prompt-preview">Generate preview</button><div id="prompt-preview" hidden></div></details>','task',id);
  edit.revision=existing?.revision;edit.originalCodebook=structuredClone(c);
  syncCategoryChoices();indexCCAFields();
@@ -128,9 +127,7 @@ readTask=function(){
  if(examples.length||'examples' in original)c.examples=examples;
  const references=[...document.querySelectorAll('.cca-reference')].map(el=>{const out={citation:el.querySelector('[name=citation]').value},doi=el.querySelector('[name=doi]').value;if(doi)out.doi=doi;return out;});
  if(references.length||'references' in original)c.references=references;
- const execution_defaults={thinking:value('thinking'),default_label:value('default_label')||null};
- for(const k of ['rationale','evidence','alternatives','confidence'])execution_defaults[k]=form.querySelector('[name='+k+']').checked;
- return {codebook:c,execution_defaults};
+ return {codebook:c};
 };
 function showCCAErrors(error){
  document.querySelectorAll('.cca-field-error').forEach(el=>el.remove());

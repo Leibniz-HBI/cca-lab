@@ -30,14 +30,6 @@ snapshots in this shape:
     "examples": [
       {"text": "Excellent!", "labels": ["POS"], "explanation": "Explicit positive evaluation."}
     ]
-  },
-  "execution_defaults": {
-    "rationale": false,
-    "evidence": false,
-    "alternatives": false,
-    "confidence": false,
-    "thinking": "default",
-    "default_label": null
   }
 }
 ```
@@ -60,7 +52,7 @@ Complete required fields before saving.
   aliases and coding notes. Inclusion/exclusion criteria use two multiline bullet editors; aliases use individual text controls.
 - Examples: text, category-ID selection, optional context and explanation.
   One list supports both single-label and multi-label examples.
-- TextLab execution defaults: optional output fields, thinking and fallback category.
+- Execution settings are configured when creating jobs, separately from the codebook.
 - Prompt preview: collapsed independently, generated from current unsaved values.
 
 No ambiguity_rule exists. Put such decisions in instructions or coding_notes.
@@ -77,14 +69,13 @@ a new codebook ID.
 
 ## Interchange and API
 
-- POST /api/tasks: accepts {codebook, execution_defaults}; defaults are optional.
+- POST /api/tasks: accepts {codebook}.
 - PUT /api/tasks/{id}?revision=N: same representation, optimistic revision check.
 - POST /api/tasks/preview: same representation; validates and generates messages.
-- POST /api/tasks/import-cca: accepts a bare CCA JSON codebook, creating a new task
-  with default execution settings.
+- POST /api/tasks/import-cca: accepts a bare CCA JSON codebook, creating a new codebook-only task.
 - GET /api/tasks/{id}/export-cca: exports exactly the current codebook.
 - "CCA JSON ↓" downloads only the standard codebook.
-- "TextLab task JSON ↓" downloads both codebook and execution defaults.
+- "TextLab task JSON ↓" downloads the native {codebook} wrapper.
 
 CCA import accepts UTF-8/BOM, rejects duplicate keys and limits uploads to 5 MiB.
 Schema-allowed values are not trimmed, renamed or silently truncated.
@@ -108,8 +99,7 @@ list. Examples are considered in codebook order. An example is included only whe
 all its IDs are below the cap; a multi-label example is emitted once and counts
 towards every assigned ID. Zero disables all few-shot examples.
 
-Query overrides modify only a snapshot's execution defaults, never the codebook
-or the saved task. The enabled-field output order is unchanged; new prompts use cca-reference-v2. See PROMPTS.md.
+Job configurations control execution without modifying the codebook. New prompts use experiment-v3; see PROMPTS.md and EXPERIMENTS.md.
 
 ## Bundled examples
 

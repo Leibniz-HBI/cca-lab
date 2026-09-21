@@ -121,22 +121,30 @@ class Profile(StrictModel):
 
 
 class Query(StrictModel):
-    prompt_protocol: Literal["cca-reference-v2"] = "cca-reference-v2"
+    prompt_protocol: Literal["cca-reference-v2", "experiment-v3"] = "experiment-v3"
     model: str = Field(min_length=1, max_length=300)
     concurrency: int = Field(default=4, ge=1, le=128)
-    retries: int = Field(default=2, ge=0, le=10)
+    retries: int = Field(default=3, ge=0, le=10)
     temperature: float = Field(default=0, ge=0, le=2)
     top_p: float = Field(default=1, gt=0, le=1)
-    max_tokens: int = Field(default=256, ge=16, le=32768)
-    seed: int | None = Field(default=None, ge=-(2**63), le=2**63-1)
+    max_tokens: int = Field(default=8192, ge=16, le=32768)
+    seed: int | None = Field(default=9721, ge=-(2**63), le=2**63-1)
     structured_output: Literal["json_schema", "json_object", "none"] = "json_schema"
     extra_body: dict = Field(default_factory=dict)
     examples_per_category: int = Field(default=3, ge=0, le=100)
     max_text_chars: int = Field(default=30000, ge=1, le=1000000)
     overlong: Literal["error", "truncate"] = "error"
-    rationale: bool | None = None
-    evidence: bool | None = None
-    thinking: ThinkingLevel | None = None
+    rationale: bool = False
+    evidence: bool = False
+    alternatives: bool = False
+    confidence: bool = False
+    thinking: ThinkingLevel = "default"
+    default_label: str | None = None
+    strategy: Literal["joint", "binary"] = "joint"
+    batch_size: int = Field(default=1, ge=1, le=100)
+    use_context: bool = False
+    max_context_chars: int = Field(default=30000, ge=1, le=1000000)
+    max_batch_chars: int = Field(default=200000, ge=100, le=2000000)
 
     @field_validator("extra_body")
     @classmethod
@@ -153,6 +161,7 @@ class NewJob(StrictModel):
     dataset_id: str
     profile_id: str
     text_column: str
+    context_column: str | None = None
     query: Query
 
 
@@ -162,6 +171,7 @@ class GoldSet(StrictModel):
     doc_id_column: str = "doc_id"
     text_column: str = "text"
     gold_column: str = "gold_label"
+    context_column: str | None = None
     mode: Literal["single", "multi"] = "single"
     separator: Annotated[str, StringConstraints(strip_whitespace=False, min_length=1, max_length=16)] = "|"
     allow_empty: bool = False
@@ -170,6 +180,8 @@ class GoldSet(StrictModel):
     def distinct_columns(self):
         if len({self.doc_id_column, self.text_column, self.gold_column}) != 3:
             raise ValueError("doc_id, text and gold_label must be distinct columns")
+        if self.context_column and self.context_column in {self.doc_id_column,self.text_column,self.gold_column}:
+            raise ValueError("Context must use a separate column")
         if self.mode == "single" and self.allow_empty:
             raise ValueError("Empty gold labels are only allowed in multi-label mode")
         return self
@@ -223,9 +235,17 @@ class NewPrediction(RepeatedRuns):
     name: str = Field(min_length=1, max_length=200)
     dataset_id: str
     task_ids: list[str] = Field(min_length=1, max_length=50)
-    profile_id: str
+    profile_id: str | None = None
     text_column: str
-    query: Query
+    context_column: str | None = None
+    query: Query | None = None
+    variants: list[Variant] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def configurations(self):
+        if not self.variants and not (self.profile_id and self.query):
+            raise ValueError("Provide experiment configurations")
+        return self
 
     @field_validator("task_ids")
     @classmethod

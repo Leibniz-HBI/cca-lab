@@ -88,7 +88,7 @@ def tasks():
 def create_task(task: Task):
     id = uid()
     with connect() as db:
-        db.execute("INSERT INTO tasks VALUES(?,?,?,?)", (id, 1, task.model_dump_json(), time.time()))
+        db.execute("INSERT INTO tasks VALUES(?,?,?,?)", (id, 1, task.model_dump_json(exclude={"execution_defaults"}), time.time()))
     return {"id": id}
 
 
@@ -135,7 +135,7 @@ def edit_task(id: str, task: Task, revision: int):
     with connect() as db:
         get(db, "tasks", id)
         count = db.execute("UPDATE tasks SET spec=?,revision=revision+1,updated=? WHERE id=? AND revision=?", (
-            task.model_dump_json(), time.time(), id, revision)).rowcount
+            task.model_dump_json(exclude={"execution_defaults"}), time.time(), id, revision)).rowcount
         if not count:
             raise HTTPException(409, "Task has changed; reload before saving")
     return {"id": id}
@@ -162,6 +162,9 @@ class PreviewRequest(BaseModel):
     query: Query = Field(default_factory=lambda: Query(model="preview"))
     provider: Literal["openai", "ollama"] = "openai"
     text: str = "The text to classify goes here."
+    context: str = ""
+    samples: list[dict] | None = None
+    category: str = ""
 
 
 @app.post("/api/tasks/preview-request")
@@ -170,7 +173,10 @@ def preview_request(spec: PreviewRequest):
     from .llm import request_body
     task = resolved_task(spec.task, spec.query)
     profile = Profile(name="Preview", provider=spec.provider)
-    path, body = request_body(task, spec.query, profile, spec.text)
+    from .experiment import compile_request
+    samples=spec.samples or [{"id":"1",**({"context":spec.context} if spec.query.use_context else {}),"text":spec.text}]
+    try:path,body,_=compile_request(task,spec.query,profile,samples,spec.category)
+    except ValueError as exc:raise HTTPException(422,str(exc)) from exc
     return {"prompt_protocol": spec.query.prompt_protocol, "path": path, "request": body,
             "note": "Illustrative request using the selected preview settings; no model is called."}
 
@@ -264,7 +270,9 @@ def create_job(job: NewJob):
         if job.text_column not in json.loads(dataset["columns_json"]):
             raise HTTPException(422, "Unknown text column")
         try:
-            snapshot = snapshot_for(task, profile, job.query, job.text_column)
+            from .jobs import validate_mapping
+            validate_mapping(dataset,job.text_column,job.context_column)
+            snapshot = snapshot_for(task, profile, job.query, job.text_column, job.context_column)
         except ValueError as exc:
             raise HTTPException(422,str(exc)) from exc
         id = enqueue(db, job.name, dataset, snapshot)
@@ -278,6 +286,11 @@ def job_row(row, detail=False):
     result["prediction_id"] = snapshot.get("prediction_id")
     result["model"] = snapshot["query"]["model"]
     result["task_name"] = snapshot["task"]["codebook"]["title"]
+    from .jobs import request_counts
+    result["query_count"]=request_counts(result["total"],snapshot)
+    if detail:
+        with connect() as db:
+            result["component_progress"]={r[0]:r[1] for r in db.execute("SELECT status,COUNT(*) FROM components WHERE job_id=? GROUP BY status",(result["id"],))}
     if detail:
         result["snapshot"] = snapshot
     from .runtime import runtime_metrics
@@ -356,6 +369,8 @@ def result_row(row):
     row["labels"] = json.loads(row["labels"])
     for field in ("evidence", "attempt_outputs", "alternative_interpretations", "candidate_interpretations"):
         row[field] = json.loads(row[field])
+    from .executor import component_details
+    with connect() as db:row["component_results"]=component_details(db,row["job_id"],row["row_no"])
     row["source"] = json.loads(row.pop("data"))
     return row
 
@@ -379,7 +394,7 @@ def safe_cell(value):
     return value
 
 
-EXPORT_FIELDS = ["self_reported_confidence", "alternative_interpretations", "candidate_interpretations", "fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
+EXPORT_FIELDS = ["component_results", "self_reported_confidence", "alternative_interpretations", "candidate_interpretations", "fallback_used", "error_count", "row_no", "labels", "rationale", "status", "error", "raw", "attempts", "seconds", "prompt_tokens", "completion_tokens", "evidence", "thinking", "attempt_outputs"]
 
 
 @app.get("/api/jobs/{id}/export")
@@ -406,7 +421,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
     def flat_rows():
         for row in export_rows(id, job["dataset_id"]):
             flat = {"source." + key: row["source"].get(key, "") for key in columns}
-            flat.update({"classification." + key: dumps(row[key]) if key in ("labels", "evidence", "attempt_outputs", "alternative_interpretations", "candidate_interpretations") else row[key] for key in EXPORT_FIELDS})
+            flat.update({"classification." + key: dumps(row[key]) if isinstance(row[key],(dict,list)) else row[key] for key in EXPORT_FIELDS})
             yield flat
 
     fields = ["source." + c for c in columns] + ["classification." + c for c in EXPORT_FIELDS]
@@ -459,5 +474,60 @@ app.include_router(removal_router)
 
 from .uncertainty import router as uncertainty_router
 app.include_router(uncertainty_router)
+
+
+
+
+@app.get('/api/jobs/{id}/requests')
+def request_log(id: str, after: int = 0, limit: int = 50):
+    with connect() as db:
+        get(db,'jobs',id)
+        rows=db.execute('SELECT * FROM llm_requests WHERE job_id=? ORDER BY created,id LIMIT ? OFFSET ?', (id,min(max(limit,1),200),max(after,0))).fetchall()
+    return [{**dict(r),'inputs':json.loads(r['inputs']),'request_json':json.loads(r['request_json']),'output_json':json.loads(r['output_json']) if r['output_json'] else None} for r in rows]
+
+
+class ExperimentPreview(BaseModel):
+    task_id: str
+    dataset_id: str
+    profile_id: str
+    query: Query
+    text_column: str
+    context_column: str | None = None
+    category: str = ''
+    after: int = 0
+    source_evaluation_job_id: str | None = None
+
+
+@app.post('/api/experiments/preview')
+def experiment_preview(spec: ExperimentPreview):
+    from .experiment import prepare_item,compile_request,batches
+    from .jobs import validate_mapping
+    with connect() as db:
+        dataset=get(db,'datasets',spec.dataset_id)
+        if spec.source_evaluation_job_id:
+            source=get(db,'jobs',spec.source_evaluation_job_id);saved=json.loads(source['snapshot'])
+            if not saved.get('evaluation_id') or source['status'] not in ('completed','completed_with_errors'):raise HTTPException(422,'Expected completed evaluation run')
+            task={'id':saved['task_id'],'revision':saved['task_revision'],'spec':dumps(saved['task'])};profile={'spec':dumps(saved['profile'])}
+            from .jobs import snapshot_query
+            spec.query=snapshot_query(saved).model_copy(update={'prompt_protocol':'experiment-v3'})
+        else:
+            task=get(db,'tasks',spec.task_id);profile=get(db,'profiles',spec.profile_id)
+        try:
+            validate_mapping(dataset,spec.text_column,spec.context_column)
+            snapshot=snapshot_for(task,profile,spec.query,spec.text_column,spec.context_column)
+            rows=db.execute('SELECT row_no,data FROM records WHERE dataset_id=? AND row_no>? ORDER BY row_no LIMIT ?', (spec.dataset_id,max(0,spec.after),spec.query.batch_size)).fetchall()
+            items=[prepare_item(r['row_no'],json.loads(r['data']),snapshot) for r in rows]
+            if not items:raise ValueError('No sample rows available')
+            items=next(batches(items,spec.query))
+            path,body,_=compile_request(Task(**snapshot['task']),spec.query,Profile.model_validate_json(profile['spec']),items,spec.category)
+        except ValueError as exc:raise HTTPException(422,str(exc)) from exc
+    return {'prompt_protocol':'experiment-v3','path':path,'request':body,'note':'Exact request structure using selected dataset rows. No LLM request is sent.'}
+
+
+@app.get('/api/jobs/{id}/requests.jsonl')
+def export_requests(id: str):
+    from .executor import request_chunks
+    with connect() as db:get(db,'jobs',id)
+    return StreamingResponse(request_chunks([id]),media_type='application/x-ndjson',headers={'Content-Disposition':f'attachment; filename="requests-{id}.jsonl"'})
 
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="frontend")

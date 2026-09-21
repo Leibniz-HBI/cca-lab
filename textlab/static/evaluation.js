@@ -2,7 +2,6 @@
 let selectedEvaluation=null, evaluationReport=null, evaluationScope='common', evaluationAfter=0;
 const metricNumber=v=>v===null||v===undefined?'n/a':Number(v).toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3});
 const triState=v=>v==='true'?true:v==='false'?false:null;
-function outputToggles(){return thinkingSelect('thinking_override','',true)+select('Rationale','rationale_override',option('','Use task setting','')+option('true','On')+option('false','Off'))+select('Evidence','evidence_override',option('','Use task setting','')+option('true','On')+option('false','Off'));}
 function renderGold(){
  const gold=state.goldSets||[];
  $('#view').innerHTML=`<div class="notice"><strong>Register a gold standard.</strong> Upload CSV, wait for import, then map document ID, text and gold label columns. Multi-label cells are split using the selected separator.<div class="actions spaced"><button data-action="new-dataset">Upload CSV</button></div></div>`+(gold.length?`<div class="cards">${gold.map(g=>`<article class="card"><span class="muted">${g.spec.mode==='multi'?'MULTI-LABEL':'SINGLE-LABEL'} · ${num(g.total)} DOCUMENTS</span><h2>${esc(g.spec.name)}</h2><p>ID: ${esc(g.spec.doc_id_column)} · Text: ${esc(g.spec.text_column)} · Gold: ${esc(g.spec.gold_column)}</p><div class="chips">${Object.entries(g.label_counts).map(([k,n])=>`<span class="chip">${esc(k)} · ${num(n)}</span>`).join('')}</div><div class="actions"><button data-action="gold-edit" data-id="${g.id}">Edit</button><button data-action="gold-preview" data-id="${g.id}">Gold preview</button><button data-action="new-evaluation" data-gold="${g.id}">Evaluate</button><button class="danger" data-action="remove-gold" data-id="${g.id}">Delete</button></div></article>`).join('')}</div>`:'<p class="muted">No gold dataset registered yet.</p>')+`<div class="panel spaced"><div class="panel-head"><h2>CSV files available for registration</h2></div><div class="table-wrap"><table><thead><tr><th>File</th><th>Status</th><th>Rows</th><th></th></tr></thead><tbody>${state.datasets.map(d=>`<tr><td>${esc(d.name)}</td><td>${badge(d.status)}</td><td>${num(d.total)}</td><td>${d.status==='ready'?`<button data-action="gold-register" data-id="${d.id}">Map columns</button>`:esc(d.error||'')}</td></tr>`).join('')}</tbody></table></div></div>`;
@@ -12,45 +11,19 @@ function goldEditor(datasetId,goldId=null){
  if(saved)datasetId=saved.dataset_id;
  const ready=state.datasets.filter(d=>d.status==='ready'&&d.total);
  if(!ready.length){toast('Upload a CSV and wait for import to complete first.');datasetEditor();return;}
- openEditor(saved?'Edit gold dataset':'Register gold dataset',`${input('Name','name','Gold standard','text','required')}${select('Imported CSV','dataset_id',ready.map(d=>option(d.id,d.name,datasetId)).join(''))}<div class="grid">${select('Document ID','doc_id_column','')}${select('Text','text_column','')}${select('Gold-Label','gold_column','')}${select('Label mode','mode',option('single','Single-Label','single')+option('multi','Multi-Label'))}${input('Separator within gold cells','separator','|','text','required maxlength=16')}<label><input type="checkbox" name="allow_empty">Empty gold cell = no labels (multi-label only)</label></div><p class="muted">Example: FOR|SECURITY. The separator is a literal string, not a regular expression. Document IDs must be unique. If this registration is used by an evaluation, saving creates a revised registration and preserves the original for reproducibility.</p>`,'gold',goldId);
+ openEditor(saved?'Edit gold dataset':'Register gold dataset',`${input('Name','name','Gold standard','text','required')}${select('Imported CSV','dataset_id',ready.map(d=>option(d.id,d.name,datasetId)).join(''))}<div class="grid">${select('Document ID','doc_id_column','')}${select('Text','text_column','')}${select('Gold-Label','gold_column','')}${select('Context column (optional)','context_column','')}${select('Label mode','mode',option('single','Single-Label','single')+option('multi','Multi-Label'))}${input('Separator within gold cells','separator','|','text','required maxlength=16')}<label><input type="checkbox" name="allow_empty">Empty gold cell = no labels (multi-label only)</label></div><p class="muted">Example: FOR|SECURITY. The separator is a literal string, not a regular expression. Document IDs must be unique. If this registration is used by an evaluation, saving creates a revised registration and preserves the original for reproducibility.</p>`,'gold',goldId);
  updateGoldColumns();
  if(saved)for(const [key,value] of Object.entries(saved)){const field=$(`[name=${key}]`);if(field){if(field.type==='checkbox')field.checked=value;else field.value=value;}}
 }
 function updateGoldColumns(){
  const d=state.datasets.find(d=>d.id===$('[name=dataset_id]').value);
+ $('[name=context_column]').innerHTML=option('','No context')+d.columns.map(c=>option(c,c)).join('');
  for(const [field,standard] of [['doc_id_column','doc_id'],['text_column','text'],['gold_column','gold_label']])$(`[name=${field}]`).innerHTML=d.columns.map(c=>option(c,c,standard)).join('');
 }
-async function submitGold(f){await api('/gold-sets'+(edit.id?'/'+edit.id:''),{method:edit.id?'PUT':'POST',body:JSON.stringify({name:f.get('name'),dataset_id:f.get('dataset_id'),doc_id_column:f.get('doc_id_column'),text_column:f.get('text_column'),gold_column:f.get('gold_column'),mode:f.get('mode'),separator:f.get('separator'),allow_empty:f.has('allow_empty')})});}
+async function submitGold(f){await api('/gold-sets'+(edit.id?'/'+edit.id:''),{method:edit.id?'PUT':'POST',body:JSON.stringify({name:f.get('name'),dataset_id:f.get('dataset_id'),doc_id_column:f.get('doc_id_column'),text_column:f.get('text_column'),gold_column:f.get('gold_column'),context_column:f.get('context_column')||null,mode:f.get('mode'),separator:f.get('separator'),allow_empty:f.has('allow_empty')})});}
 function renderEvaluations(){
  const list=state.evaluations||[];
  $('#view').innerHTML=`<div class="stats"><div class="stat"><span>Evaluations</span><strong>${num(list.length)}</strong></div><div class="stat"><span>Gold datasets</span><strong>${num(state.goldSets?.length)}</strong></div><div class="stat"><span>Model configurations</span><strong>${num(list.reduce((n,e)=>n+e.runs.length,0))}</strong></div><div class="stat"><span>Reports available</span><strong>${num(list.filter(e=>e.report_ready).length)}</strong></div></div>`+(list.length?`<div class="panel"><div class="panel-head"><h2>Model comparisons</h2><span class="muted">Gold → Predictions → Metrics</span></div><div class="table-wrap"><table><thead><tr><th>Evaluation</th><th>Variants</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody>${list.map(e=>`<tr><td><strong>${esc(e.name)}</strong><span class="muted">${esc(e.task_snapshot.task.codebook.title)}</span></td><td>${e.runs.length}</td><td>${badge(e.status)}</td><td class="progress">${num(e.done)} / ${num(e.total)}<progress value="${e.done}" max="${e.total}"></progress></td><td><button data-action="evaluation-detail" data-id="${e.id}">Compare</button> <button class="danger" data-action="remove-evaluation" data-id="${e.id}">Delete</button></td></tr>`).join('')}</tbody></table></div></div>`:empty('Compare models against gold labels','Select a task and a registered gold dataset. Compare models with different temperatures or other query parameters.','new-evaluation','Create evaluation'));
-}
-async function evaluationEditor(goldId,taskId){
- if(!state.tasks.length||!state.goldSets?.length||!state.profiles.length){toast('Requires a task, a registered gold dataset and an LLM connection.');return;}
- openEditor('Configure evaluation',`${input('Evaluation name','name','Model comparison','text','required')}<div class="grid">${select('Gold dataset','gold_id',state.goldSets.map(g=>option(g.id,g.spec.name,goldId)).join(''))}${select('Classification task','task_id',state.tasks.map(t=>option(t.id,t.spec.codebook.title,taskId)).join(''))}</div><div class="category"><h3>Model × Temperature</h3>${select('Connection for new variants','eval_profile',state.profiles.map(p=>option(p.id,p.spec.name)).join(''))}<label>Available models<select name="eval_models" multiple size="4" aria-label="Available models"></select><small>Use Ctrl/Cmd to select multiple models.</small></label>${input('Manual model IDs (optional, comma-separated)','manual_models')}${input('Temperatures (comma-separated; decimal point)','temperatures','0, 0.5')}<p id="eval-model-hint" class="muted">Loading models …</p><button type="button" data-action="evaluation-add-variants">Add combinations</button></div><div class="section-title"><h3>Configurations to run</h3></div><div id="variants"></div><details open><summary>Shared settings</summary><div class="grid">${outputToggles()}${input('Concurrent requests per variant','concurrency',4,'number','min=1 max=128 required')}${input('Retries','retries',2,'number','min=0 max=10 required')}${input('Maximum output tokens','max_tokens',1024,'number','min=16 max=32768 required')}${input('Top-p','top_p',1,'number','min=0.01 max=1 step=0.01 required')}${input('Seeds (optional; e.g. 11;22;33)','seeds','','text')}${select('Output format','structured_output',option('json_schema','JSON Schema','json_schema')+option('json_object','JSON object')+option('none','Prompt only'))}${input('Examples per category','examples_per_category',3,'number','min=0 max=100 required')}${input('Maximum text length','max_text_chars',30000,'number','min=1 max=1000000 required')}${select('Overlong texts','overlong',option('error','Mark as failed','error')+option('truncate','Truncate'))}</div>${area('Additional API parameters (JSON)','extra_body','{}','Use the thinking setting or server-specific parameters. Returned thinking output is saved automatically.')}</details><p class="muted">Up to 50 configurations and 500 runs after seed expansion. Leave seeds blank for one run per configuration. Each uses the same gold dataset and task snapshot. Gold labels are never sent to the model.</p>`,'evaluation');
- $('#editor-form button[type=submit]').textContent='Start evaluation';
- await evalLoadModels();
-}
-async function evalLoadModels(){
- const id=$('[name=eval_profile]').value;
- try{const r=await api('/profiles/'+id+'/models');if(!$('[name=eval_models]')||$('[name=eval_profile]').value!==id)return;$('[name=eval_models]').innerHTML=r.models.map((m,i)=>option(m,m,i===0?m:null)).join('');$('#eval-model-hint').textContent=r.models.length+' models available.';}catch(e){if($('#eval-model-hint'))$('#eval-model-hint').textContent=e.message;}
-}
-function addVariants(){
- const selected=[...$('[name=eval_models]').selectedOptions].map(o=>o.value),manual=$('[name=manual_models]').value.split(',').map(s=>s.trim()).filter(Boolean);
- const models=[...new Set([...selected,...manual])],temps=$('[name=temperatures]').value.split(',').map(s=>s.trim());
- if(!models.length||!temps.length||temps.some(t=>t===''||!Number.isFinite(Number(t))||Number(t)<0||Number(t)>2))throw Error('Provide at least one model and valid temperatures between 0 and 2.');
- if($('#variants').children.length+models.length*temps.length>50)throw Error('Maximum 50 configurations per evaluation.');
- const profile=$('[name=eval_profile]').value;
- for(const model of models)for(const temp of temps){const n=$('#variants').children.length+1;$('#variants').insertAdjacentHTML('beforeend',`<div class="variant category"><div class="category-head"><strong>Variant ${n}</strong><button type="button" data-action="evaluation-remove-variant">Remove</button></div>${input('Name','variant_name',`${model} · T=${temp} · #${n}`,'text','required')}<div class="grid">${select('Connection','variant_profile',state.profiles.map(p=>option(p.id,p.spec.name,profile)).join(''))}${input('Model ID','variant_model',model,'text','required')}${input('Temperature','variant_temperature',temp,'number','min=0 max=2 step=0.01 required')}</div><details><summary>Override parameters for this variant</summary>${area('Query-Overrides (JSON)','variant_overrides','{}','Example: {"top_p":0.8,"seed":42,"rationale":false,"evidence":true}. The complete effective configuration is saved.')}</details></div>`);}
-}
-async function submitEvaluation(f){
- if(!$('#variants').children.length)throw Error('Add model/temperature combinations first.');
- const base={};for(const k of ['concurrency','retries','top_p','max_tokens','examples_per_category','max_text_chars'])base[k]=Number(f.get(k));
- for(const k of ['structured_output','overlong'])base[k]=f.get(k);
- base.thinking=f.get('thinking_override')||null;base.seed=null;base.rationale=triState(f.get('rationale_override'));base.evidence=triState(f.get('evidence_override'));base.extra_body=JSON.parse(f.get('extra_body'));
- const variants=[...document.querySelectorAll('.variant')].map(c=>{const get=n=>c.querySelector(`[name=${n}]`).value;return {name:get('variant_name'),profile_id:get('variant_profile'),query:{...base,model:get('variant_model'),temperature:Number(get('variant_temperature')),...JSON.parse(get('variant_overrides'))}};});
- await api('/evaluations',{method:'POST',body:JSON.stringify({name:f.get('name'),task_id:f.get('task_id'),gold_id:f.get('gold_id'),seeds:parseSeedInput(f.get('seeds')),variants})});
- location.hash='evaluations';
 }
 async function showEvaluation(id,initial=true){
  const e=await api('/evaluations/'+id);
@@ -94,7 +67,7 @@ async function evaluationAction(event){
  if(a==='gold-edit')goldEditor(null,id);
  if(a==='gold-preview'){selectedJob=null;selectedEvaluation=null;const r=await api('/gold-sets/'+id+'/preview');$('#detail-title').textContent='Gold standard · Preview';$('#detail-body').innerHTML='<pre>'+esc(JSON.stringify(r,null,2))+'</pre>';$('#detail').showModal();}
  if(a==='new-evaluation')await evaluationEditor(el.dataset.gold);
- if(a==='evaluation-add-variants')addVariants();if(a==='evaluation-remove-variant')el.closest('.variant').remove();
+
  if(a==='evaluation-detail')await showEvaluation(id);
  if(a==='evaluation-control'){if(el.dataset.control==='cancel'&&!confirm('Cancel all active variants?'))return;await api('/evaluations/'+id+'/'+el.dataset.control,{method:'POST'});await refresh();}
  if(a==='evaluation-predictions-first'){evaluationAfter=0;await loadEvaluationPredictions();}if(a==='evaluation-predictions-next')await loadEvaluationPredictions();
@@ -102,7 +75,7 @@ async function evaluationAction(event){
 }
 document.addEventListener('click',evaluationAction);
 document.addEventListener('change',async e=>{try{
- if(e.target.name==='eval_profile')await evalLoadModels();
+
  if(e.target.name==='eval_scope'){evaluationScope=e.target.value;await loadEvaluationReport();}
  if(e.target.name==='eval_average')renderEvaluationSummary();
  if(e.target.name==='eval_class_metric'){renderEvaluationClasses();$('#evaluation-class-chart').innerHTML=chartBlock('classes',e.target.value);}

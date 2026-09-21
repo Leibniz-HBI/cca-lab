@@ -11,7 +11,7 @@ COUNT_FIELDS = ('n','gold_n','valid_n','prediction_n','fallback_n','failed_n','u
 
 def experiment_key(snapshot):
     query={k:v for k,v in snapshot['query'].items() if k!='seed'}
-    identity={k:snapshot.get(k) for k in ('task_id','task_revision','task','profile','text_column','prompt_protocol')}
+    identity={k:snapshot.get(k) for k in ('task_id','task_revision','task','profile','text_column','context_column','prompt_protocol')}
     identity['query']=query
     return hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()[:24]
 

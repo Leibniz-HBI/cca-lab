@@ -1,3 +1,4 @@
+from task_fixtures import legacy_jobs
 from task_fixtures import task_spec
 import csv
 import io
@@ -69,7 +70,7 @@ def test_resume_and_partial_window_recovery(client):
     assert job['done'] == 3 and job['metrics']['requests'] == 3
     assert len(client.get('/api/jobs/' + id + '/results').json()) == 3
 
-def test_cancel_drains_then_export(client, monkeypatch):
+def test_saved_snapshot_cancel_drains_then_export(client, monkeypatch):
     id, _, _ = setup_job(client, content=b'id,text\n1,yes\n2,no\n', concurrency=2)
     import textlab.worker as worker
     original = worker.classify
@@ -81,6 +82,7 @@ def test_cancel_drains_then_export(client, monkeypatch):
         release.wait(5)
         return original(*args)
     monkeypatch.setattr(worker, 'classify', slow)
+    legacy_jobs()
     thread = threading.Thread(target=tick)
     thread.start()
     assert started.wait(5)
@@ -89,11 +91,12 @@ def test_cancel_drains_then_export(client, monkeypatch):
     release.set()
     thread.join(5)
     assert not thread.is_alive()
-    tick()
+    legacy_jobs(); tick()
     assert client.get('/api/jobs/' + id).json()['status'] == 'cancelled'
     assert client.get('/api/jobs/' + id).json()['done'] >= 1
     assert client.get('/api/jobs/' + id + '/export').status_code == 200
     assert client.post('/api/jobs/' + id + '/resume').status_code == 409
+
 
 def test_invalid_csv_and_limits(client, monkeypatch):
     client.post('/api/datasets', content=b'text,text\na,b\n')
@@ -123,7 +126,7 @@ def test_provider_payload_retry(provider, monkeypatch):
         calls.append(body)
         assert body['stream'] is False and body['messages'][-1]['role'] == 'user'
         if provider == 'ollama':
-            assert body['format']['type'] == 'object' and body['options']['num_predict'] == 256
+            assert body['format']['type'] == 'object' and body['options']['num_predict'] == 8192
         else:
             assert body['response_format']['json_schema']['schema']['type'] == 'object'
         raw = '{"labels":["INVALID"]}' if len(calls) == 1 else '{"labels":["FOR"]}'

@@ -37,7 +37,7 @@ def connect():
         db.close()
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 SCHEMA = Path(__file__).with_name("schema.sql").read_text()
 
 
@@ -62,6 +62,24 @@ def init():
                     db.execute(statement)
             db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         else:
+            if version == 6:
+                # Only the immediately preceding, verified current schema is upgraded.
+                addition = SCHEMA[SCHEMA.index('CREATE TABLE llm_requests'):]
+                base = SCHEMA[:SCHEMA.index('CREATE TABLE llm_requests')]
+                with sqlite3.connect(':memory:') as previous:
+                    previous.executescript(base)
+                    if schema_signature(db) != schema_signature(previous):
+                        raise RuntimeError('Unsupported TextLab database schema')
+                for statement in addition.split(';'):
+                    if statement.strip(): db.execute(statement)
+                # Library tasks now contain only codebooks. Historical snapshots stay intact.
+                for row in db.execute('SELECT id,spec FROM tasks').fetchall():
+                    spec = json.loads(row['spec'])
+                    if 'execution_defaults' in spec:
+                        spec.pop('execution_defaults')
+                        db.execute('UPDATE tasks SET spec=? WHERE id=?', (dumps(spec),row['id']))
+                db.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
+                version = SCHEMA_VERSION
             with sqlite3.connect(":memory:") as expected:
                 expected.executescript(SCHEMA)
                 valid = version == SCHEMA_VERSION and schema_signature(db) == schema_signature(expected)

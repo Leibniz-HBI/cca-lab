@@ -158,13 +158,13 @@ def agreement(kind:str,id:str,after:int=0,limit:int=50,format:str='json'):
     return StreamingResponse(agreement_chunks(runs,format),media_type='text/csv' if format=='csv' else 'application/x-ndjson',headers={'Content-Disposition':f'attachment; filename="{kind}-{id}-agreement.{format}"'})
 
 
-def confidence_chart(report,scope,kind,format='svg'):
+def confidence_chart(report,scope,kind,format='svg',category=None):
     from matplotlib.figure import Figure
     from .reports import PLOT_LOCK
     with PLOT_LOCK:
         fig=Figure(figsize=(9,5),layout='constrained');ax=fig.subplots();any_data=False; low=0; high=1
         for group in report['scopes'][scope].get('groups',[]):
-            c=group.get('confidence',{})
+            c=group.get('binary_confidence',{}).get(category,{}) if category else group.get('confidence',{})
             points=[p for p in c.get('bins' if kind=='reliability' else 'risk',[]) if p.get('accuracy' if kind=='reliability' else 'risk') is not None]
             if not points:continue
             any_data=True
@@ -180,7 +180,19 @@ def confidence_chart(report,scope,kind,format='svg'):
 
 
 @router.get('/evaluations/{id}/confidence-chart')
-def chart(id:str,scope:str='common',kind:str='reliability',format:str='svg'):
+def chart(id:str,scope:str='common',kind:str='reliability',format:str='svg',category:str|None=None):
     from .eval_api import ready_report
     if scope not in ('common','valid') or kind not in ('reliability','risk') or format not in ('svg','png'):raise HTTPException(422,'Invalid chart options')
-    return Response(confidence_chart(ready_report(id),scope,kind,format),media_type='image/svg+xml' if format=='svg' else 'image/png')
+    return Response(confidence_chart(ready_report(id),scope,kind,format,category),media_type='image/svg+xml' if format=='svg' else 'image/png')
+
+
+def binary_confidence(job_id,gold,selected):
+    values=defaultdict(list)
+    with connect() as db:
+        rows=db.execute("SELECT c.row_no,c.category,c.result FROM components c JOIN results r ON r.job_id=c.job_id AND r.row_no=c.row_no WHERE c.job_id=? AND c.category!='' AND c.status='ok' AND r.status='ok'",(job_id,)).fetchall()
+    for row in rows:
+        result=json.loads(row['result']);score=result.get('self_reported_confidence')
+        if row['row_no'] in selected and score is not None:
+            correct=(row['category'] in result['labels'])==(row['category'] in gold[row['row_no']])
+            values[row['category']].append((score,int(correct)))
+    return {category:confidence_metrics(pairs) for category,pairs in values.items()}

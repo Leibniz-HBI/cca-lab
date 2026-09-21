@@ -49,13 +49,14 @@ def test_gold_edit_atomic_and_evaluation_history_preserved(client,monkeypatch):
     before=client.get('/api/gold-sets/'+g+'/preview').json()
     assert client.put('/api/gold-sets/'+g,json={**spec,'allow_empty':False}).status_code==422
     assert client.get('/api/gold-sets/'+g+'/preview').json()==before
-    import textlab.worker as w
-    original=w.classify
-    def empty(snapshot,text,http):
-        result=original(snapshot,text,http)
-        if text=='None applies':result['labels']=[]
+    import textlab.executor as w
+    original=w.perform
+    def empty(profile,query,task,items,path,body,http):
+        result=original(profile,query,task,items,path,body,http)
+        for item in items:
+            if item['text']=='None applies':result['results'][item['id']]['labels']=[]
         return result
-    monkeypatch.setattr(w,'classify',empty)
+    monkeypatch.setattr(w,'perform',empty)
     response=client.post('/api/evaluations',json={'name':'Empty labels','gold_id':g,'task_id':t,'variants':[{'name':'One run','profile_id':p,'query':{'model':'mock'}}]})
     assert response.status_code==201,response.text
     eid=response.json()['id']

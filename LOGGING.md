@@ -25,3 +25,5 @@ DEBUG emits per-record information and should be switched back to INFO after dia
 
 If no cca_import_started entry appears when selecting a file, inspect the browser
 console and Network tab and hard-refresh to load the updated JavaScript.
+
+The experiment executor logs request start/completion at DEBUG with job/request IDs, strategy, sample count, valid-result count and duration. It does not put input text or model output into process logs. The separate job request log intentionally stores exact inputs and outputs for audit and export.

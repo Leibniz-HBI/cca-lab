@@ -6,7 +6,7 @@ A Python workbench for reproducible LLM-based content analysis using CCA Schema 
 
 - English navigation, forms, feedback, reports and charts. Existing user-authored tasks and texts retain their original language.
 - Delete LLM connections, original CSV files, datasets, gold registrations, evaluations and prediction batches. Dependency checks block deletion of active runs; cascade deletion requires confirmation.
-- Task-level thinking: server default, disabled, enabled, minimal, low, medium, high or maximum. Model and provider support determines which settings are usable. Jobs and evaluation variants can override task settings.
+- Experiment configurations: vary models, sampling parameters, context, output fields, thinking, joint/binary classification and batch size. Defaults: 8192 output tokens, 3 retries, seed 9721. See [EXPERIMENTS.md](EXPERIMENTS.md).
 - Evaluation runtime comparison: active time, elapsed time, document throughput, successful document throughput, mean per-document latency and output-token throughput, alongside quality metrics.
 - **Prediction** workspace: select one dataset and multiple tasks. Each task produces an independent job. The worker saves combined CSV, JSON, JSONL, Parquet and manifest files on disk for repeated downloads.
 
@@ -51,10 +51,10 @@ Both processes must share `TEXTLAB_DATA` and API-key environment variables. Comp
 
 ## First prediction
 
-1. **Define tasks → New task:** create a CCA codebook with title, description, categories, instructions and examples. Choose single-label or multi-label classification. Configure rationale, exact evidence quotes and thinking.
+1. **Define tasks → New task:** create a CCA codebook with title, description, categories, instructions and examples. Choose single-label or multi-label classification. Execution settings belong to job configurations.
 2. **Configuration → LLM connections → New connection:** configure your model server. Use **List models** to check it. The demo provider always returns the first category and is only a plumbing test.
 3. **Prepare data → Upload CSV:** choose delimiter and encoding; wait for **Ready**.
-4. **Run predictions → New prediction:** select the dataset, text column, one or more tasks, connection and model. Use Ctrl/Cmd to select multiple tasks. Advanced parameters can override task settings; by default each task retains its own settings.
+4. **Run predictions → New prediction:** select the dataset, text and optional context columns, and one or more tasks. Generate and review experiment configurations before starting. Use comma-separated parameters and Off/On/Compare both controls to create variations; semicolon-separated seeds repeat each configuration.
 5. Open the prediction batch to monitor task runs, pause/resume/cancel, inspect individual results and download persisted exports.
 
 The **Jobs & monitoring** workspace remains available for individual jobs, including child runs belonging to predictions or evaluations.
@@ -75,7 +75,7 @@ The profile stores the **name** of an API-key environment variable, not its valu
 
 ## Task and result schema
 
-Tasks contain two objects: a standards-compliant `codebook` and `execution_defaults`. The codebook holds identity, version, description, instructions, unit of analysis, classification mode, categories and examples. Category `id` is the prediction value; `label` is the display name. All examples are standard top-level CCA examples. Rationale, evidence, confidence, alternative interpretations, thinking and fallback settings belong to execution defaults. Empty label assignments are not supported; define an explicit category if needed. Include ambiguity handling in coding instructions or category notes. See [CCA.md](CCA.md).
+Tasks contain a standards-compliant `codebook`, with identity, version, description, instructions, unit of analysis, classification mode, categories and examples. Category `id` is the prediction value; `label` is the display name. All examples are standard top-level CCA examples. Rationale, evidence, confidence, alternative interpretations, thinking and fallback settings belong to experiment configurations. Multi-label tasks accept empty label sets. Include ambiguity handling in coding instructions or category notes. See [CCA.md](CCA.md).
 
 When evidence and rationale are enabled (candidate comparison and confidence disabled):
 
@@ -105,11 +105,12 @@ TEXTLAB_DATA/
     results.jsonl
     results.parquet
     manifest.json
+    requests.jsonl
 ```
 
 Files become downloadable after every task run has completed or cancellation has finished and all exports have been generated. An interrupted export is rebuilt after worker restart; failed exports have a **Retry exports** control. Files remain on disk until the batch or parent dataset is deleted. Generating all formats uses additional disk space and occupies the single worker until finished.
 
-Each export contains **one row per input record, task and seed run**, including failed and unprocessed rows. `job_id`, `task_id`, task name and `row_no` identify the result. Original columns, labels, rationale, evidence, returned thinking, raw response, attempt logs, errors, token counts and per-text duration are retained.
+Each export contains **one row per input record, task, configuration and seed run**, including failed and unprocessed rows. `job_id`, `task_id`, task name and `row_no` identify the result. Original columns, labels, rationale, evidence, component decisions, attempt references and errors are retained. Exact requests, raw responses, returned thinking and token usage are stored once per request in requests.jsonl. Document token fields are zero because shared tokens are not attributed to individual documents; allocated document duration is an equal share of request time, not isolated latency.
 
 | Format | Representation |
 |---|---|
@@ -136,11 +137,11 @@ Active, queued or paused dependent jobs must finish or be cancelled and drained 
 
 ## Runtime and execution semantics
 
-A single coordinator processes jobs FIFO, with 1–128 request threads per job. A prediction with N tasks over M texts makes N×M classifications, plus retries. More threads do not guarantee higher model throughput.
+A single coordinator processes jobs FIFO, with 1–128 request threads per job. A prediction crosses tasks, configurations and seeds. Nominal requests per run are ceil(documents / batch_size), multiplied by category count in binary mode. Character-based splits and retries can increase this count. More threads do not guarantee higher model throughput.
 
 Active time sums timed worker batches, including API calls, retries and processing overhead. It excludes queue time, pauses, imports and other work between batches. Elapsed time runs from first start to finish and includes pauses. Mean per-document latency includes retries and overlaps across threads; it is not the reciprocal of job throughput. Legacy timing and timing interrupted by an unclean worker shutdown are reported as unknown. Runtime includes model loading and cache effects; use equivalent concurrency, inputs, budgets and warm-up conditions for comparisons.
 
-Pause/cancel stops new submissions and waits for in-flight requests and retries. A crash may repeat an API call whose result was not committed; persisted results are unique per job/input row. `retries=2` permits three total attempts. Transient transport failures, invalid output and HTTP 408/429/5xx retry; other 4xx fail immediately. Empty or overlong texts fail without querying unless explicit truncation is selected.
+Pause/cancel stops new submissions and waits for in-flight requests; unresolved retries resume later. A crash may repeat an API call whose result was not committed; persisted results are unique per job/input row. The default `retries=3` permits four total attempts. Transient transport failures, invalid output and HTTP 408/429/5xx retry; other 4xx fail immediately. Empty or overlong texts fail without querying unless explicit truncation is selected.
 
 ## Large datasets and operational limits
 

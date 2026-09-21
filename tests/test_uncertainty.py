@@ -1,4 +1,4 @@
-from task_fixtures import task_spec
+from task_fixtures import task_spec, legacy_jobs
 import io
 import json
 import math
@@ -79,8 +79,8 @@ def setup(c):
 
 def test_confidence_roundtrip_reports_exports_and_query_counts(client):
     did, tid, pid, gid = setup(client)
-    e = client.post('/api/evaluations', json={'name': 'Confidence', 'task_id': tid, 'gold_id': gid, 'seeds': [11, 22], 'variants': [{'name': 'm1', 'profile_id': pid, 'query': {'model': 'm1', 'retries': 0}}, {'name': 'm2', 'profile_id': pid, 'query': {'model': 'm2', 'retries': 2}, 'seeds': [1, 2, 3]}]}).json()
-    assert client.get('/api/evaluations/' + e['id']).json()['query_count'] == {'planned': 10, 'maximum_attempts': 22, 'runs': 5}
+    e = client.post('/api/evaluations', json={'name': 'Confidence', 'task_id': tid, 'gold_id': gid, 'seeds': [11, 22], 'variants': [{'name': 'm1', 'profile_id': pid, 'query': {'model': 'm1','confidence':True,'alternatives':True, 'retries': 0}}, {'name': 'm2', 'profile_id': pid, 'query': {'model': 'm2','confidence':True,'alternatives':True, 'retries': 2}, 'seeds': [1, 2, 3]}]}).json()
+    assert client.get('/api/evaluations/' + e['id']).json()['query_count'] == {'planned': 10, 'maximum_attempts': 22, 'runs': 5,'decisions':10,'documents':10}
     assert client.get('/api/evaluations/' + e['id'] + '/agreement').status_code == 409
     for _ in range(30):
         tick()
@@ -97,11 +97,11 @@ def test_confidence_roundtrip_reports_exports_and_query_counts(client):
     assert 'self_reported_confidence' in client.get('/api/evaluations/' + e['id'] + '/export-predictions').text
     bundle = zipfile.ZipFile(io.BytesIO(client.get('/api/evaluations/' + e['id'] + '/report?format=zip').content))
     assert {'confidence.json', 'confidence-risk.png', 'agreement.csv'} <= set(bundle.namelist())
-    p = client.post('/api/predictions', json={'name': 'Pred', 'dataset_id': did, 'task_ids': [tid], 'profile_id': pid, 'text_column': 'text', 'seeds': [4, 5], 'query': {'model': 'm', 'retries': 1}}).json()
+    p = client.post('/api/predictions', json={'name': 'Pred', 'dataset_id': did, 'task_ids': [tid], 'profile_id': pid, 'text_column': 'text', 'seeds': [4, 5], 'query': {'model': 'm', 'retries': 1,'confidence':True,'alternatives':True}}).json()
     for _ in range(20):
         tick()
     info = client.get('/api/predictions/' + p['id']).json()
-    assert info['query_count'] == {'planned': 4, 'maximum_attempts': 8, 'runs': 2}
+    assert info['query_count'] == {'planned': 4, 'maximum_attempts': 8, 'runs': 2,'decisions':4,'documents':4}
     assert info['artifact_status'] == 'ready'
     assert len(client.get('/api/predictions/' + p['id'] + '/download/agreement_jsonl').text.splitlines()) == 2
     import pyarrow.parquet as pq
@@ -119,7 +119,7 @@ def test_fallback_confidence_unavailable_and_alternative_retry(monkeypatch):
         invalid = example()
         invalid['candidate_interpretations'][0]['supporting_quotes'] = ['not in text']
         return httpx.Response(200, json={'choices': [{'message': {'content': dumps(invalid)}}]})
-    snapshot = {'task': task, 'query': {'model': 'm', 'retries': 1}, 'profile': {'name': 'Server', 'provider': 'openai', 'base_url': 'http://localhost'}}
+    snapshot = {'task': task, 'query': {'model': 'm', 'retries': 1,'confidence':True,'alternatives':True}, 'profile': {'name': 'Server', 'provider': 'openai', 'base_url': 'http://localhost'}}
     monkeypatch.setattr('textlab.llm.time.sleep', lambda _: None)
     with httpx.Client(transport=httpx.MockTransport(reply)) as c:
         r = classify(snapshot, 'Alpha Beta', c)
@@ -140,6 +140,7 @@ def test_alternative_persistence_and_numeric_job_parquet(client, monkeypatch):
             return classify(snapshot, text, transport)
     monkeypatch.setattr('textlab.worker.classify', classified)
     jid = client.post('/api/jobs', json={'name': 'Roundtrip', 'dataset_id': did, 'task_id': tid, 'profile_id': pid, 'text_column': 'text', 'query': {'model': 'm'}}).json()['id']
+    legacy_jobs(confidence=True,alternatives=True)
     for _ in range(5):
         tick()
     rows = client.get('/api/jobs/' + jid + '/results').json()

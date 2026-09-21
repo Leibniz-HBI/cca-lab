@@ -135,8 +135,8 @@ def build_report(evaluation_id):
                 'runtime':runtime_metrics(run),'requests':run['requests'],'prompt_tokens':run['prompt_tokens'],'completion_tokens':run['completion_tokens']}
         for scope, rows in (('valid',list(predictions)),('common',sorted(common.intersection(predictions)))):
             result = score([gold[row] for row in rows],[predictions[row] for row in rows],labels,task.mode)
-            from .uncertainty import run_confidence
-            report['scopes'][scope]['runs'].append({**item,**result,'confidence':run_confidence(run['id'],gold,set(rows))})
+            from .uncertainty import run_confidence, binary_confidence
+            report['scopes'][scope]['runs'].append({**item,**result,'confidence':run_confidence(run['id'],gold,set(rows)), 'binary_confidence':binary_confidence(run['id'],gold,set(rows))})
     report['policies']['confidence']='Uncalibrated self-reported probability of exact label-set agreement with gold; not codebook fit. Confidence excludes failed, fallback, missing-score and (from groups) cancelled responses. Brier and 10-bin ECE are lower-is-better; error AUROC/AP are undefined with only one outcome. Group metrics and curves average runs with sample SD; empty bins are omitted per run. Risk accepts whole confidence ties; coverage is conditional on valid scored outputs, with 20 target levels and actual mean achieved coverage plotted. No calibration model is fitted.'
     report['policies']['agreement']='Per-document seed agreement groups identical task, model and query settings except seed. Counts only successful primary label sets from completed runs. Cancelled runs and duplicate seeds are excluded; fallback and failed outputs never count as votes. Fewer than two valid distinct-seed outputs: agreement and entropy are null. All tied modal sets are retained. Frequencies are not calibrated correctness probabilities.'
     from .repetitions import aggregate_runs
@@ -144,6 +144,9 @@ def build_report(evaluation_id):
         scope['groups']=aggregate_runs(scope['runs'])
         from .uncertainty import group_confidence
         for group in scope['groups']:
+            members=[r for r in scope['runs'] if r['job_id'] in group['job_ids']]
+            categories=set().union(*(r.get('binary_confidence',{}) for r in members))
+            group['binary_confidence']={c:group_confidence([{**r,'confidence':r.get('binary_confidence',{}).get(c,{})} for r in members]) for c in categories}
             group['confidence']=group_confidence([r for r in scope['runs'] if r['job_id'] in group['job_ids']])
     return report
 

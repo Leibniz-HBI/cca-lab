@@ -48,9 +48,5 @@
         ]
       }
     ]
-  },
-  "execution_defaults": {
-    "rationale": true,
-    "evidence": false
   }
 }

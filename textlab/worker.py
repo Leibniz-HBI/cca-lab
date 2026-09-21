@@ -72,12 +72,15 @@ def save_result(job_id, row_no, result):
             result["attempts"], result["seconds"], result["prompt_tokens"], result["completion_tokens"], dumps(result.get("evidence", [])), result.get("thinking"), dumps(result.get("attempt_outputs", [])), max(int(bool(result["error"])),sum(bool(a.get("error")) for a in result.get("attempt_outputs", []))), result.get("self_reported_confidence"), dumps(result.get("alternative_interpretations", [])), dumps(result.get("candidate_interpretations", [])))).rowcount
         if inserted:
             db.execute("UPDATE jobs SET done=done+1,failed=failed+?,fallback_count=fallback_count+?,updated=?,last_error=COALESCE(?,last_error),requests=requests+?,prompt_tokens=prompt_tokens+?,completion_tokens=completion_tokens+?,total_seconds=total_seconds+? WHERE id=?", (
-                int(result["status"] != "ok"), int(result["status"] == "fallback"), time.time(), result["error"], result["attempts"], result["prompt_tokens"], result["completion_tokens"], result["seconds"], job_id))
+                int(result["status"] != "ok"), int(result["status"] == "fallback"), time.time(), result["error"], (0 if result.get("accounted") else result["attempts"]), result["prompt_tokens"], result["completion_tokens"], (0 if result.get("accounted") else result["seconds"]), job_id))
 
 
 def run_batch(job):
     log.debug("job_batch job_id=%s cursor=%s", job["id"], job["cursor"])
     snap = json.loads(job["snapshot"])
+    if snap.get("prompt_protocol")=="experiment-v3":
+        from .executor import run_window
+        return run_window(job,stopping,save_result)
     concurrency = snap["query"]["concurrency"]
     # Cursor is committed only after the whole bounded window has settled.
     # Crash recovery skips already committed results inside this window.
@@ -154,6 +157,7 @@ def pulse():
 def recover_interrupted_work():
     with connect() as db:
         db.execute("UPDATE jobs SET runtime_complete=0,active_since=NULL WHERE active_since IS NOT NULL")
+        db.execute("UPDATE llm_requests SET status='interrupted',output_json=? WHERE status='running'", (dumps({"error":"Worker interrupted; request outcome unknown"}),))
         db.execute("UPDATE predictions SET artifact_status='pending' WHERE artifact_status='building'")
 
 

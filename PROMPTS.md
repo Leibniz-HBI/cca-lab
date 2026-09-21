@@ -1,6 +1,6 @@
 # Prompt compilation
 
-Experiments use cca-reference-v2. The order of enabled output fields remains
+New experiments use experiment-v3. The order of enabled output fields remains
 evidence → candidate_interpretations → rationale → labels → self_reported_confidence.
 
 ## Prompt structure
@@ -11,9 +11,7 @@ and response requirements. Category criteria render as bullets. Authored
 instructions and criterion text are preserved; the compiler does not infer
 priority or AND/OR rules. Administrative metadata is excluded.
 
-Reference examples contain only their supplied CCA fields. They are clearly
-identified as annotated reference data in the system message, not synthesized
-assistant outputs. No confidence, evidence spans, candidates or boundary claims
+Reference examples contain only their supplied CCA fields. They are grouped into paired user sample batches and assistant reference annotations. Missing inference annotations are not synthesized. No confidence, evidence spans, candidates or boundary claims
 are inferred from labels. The separate mock provider still generates synthetic
 outputs for plumbing tests.
 
@@ -45,8 +43,7 @@ CCA arrays and the bundled CCA 0.1 schema remain unchanged.
 
 The collapsed Prompt preview section allows selection of provider and output mode.
 It displays decoded system/user messages and expandable raw request JSON.
-The preview and worker share request construction. It uses model "preview",
-placeholder text and displayed preview settings; it does not call an LLM.
+The task editor uses placeholder text. The experiment configuration preview uses the selected dataset rows, context mapping, category and actual effective configuration, through the same compiler as the worker; it does not call an LLM.
 It contains no authentication headers or credentials.
 
 POST /api/tasks/preview still returns messages.
@@ -55,6 +52,6 @@ POST /api/tasks/preview-request accepts {task, query?, provider?, text?} and ret
 
 ## Protocol provenance
 
-cca-reference-v2 is the only supported compiler. Its identifier is recorded in snapshots and attempt logs. The query metadata field accepts only this fixed value; it is not a selectable compiler. Current saved snapshots remain readable without rewriting them.
+New jobs always use experiment-v3. The immediately preceding cca-reference-v2 execution path remains only for existing saved jobs. Snapshots and request records preserve provenance; the protocol is not a UI option. Binary requests expose one category definition and ask for either [category_id] or []; batches use stable sample IDs. Evidence and candidate supporting quotes must match the target text, never context or another sample. See EXPERIMENTS.md.
 
 Prompt formatting is tested for implementation correctness; no empirical accuracy or calibration gain is claimed.

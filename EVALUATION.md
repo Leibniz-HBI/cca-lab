@@ -1,15 +1,15 @@
-# Evaluation in TextLab 0.4.0
+# Evaluation in TextLab
 
-Version 0.4 adds repeated seeds, grouped mean/SD tables, error-bar charts and explicitly scored fallback labels. [REPETITIONS.md](REPETITIONS.md) defines the updated scoring and repetition conventions.
+Evaluations support repeated seeds, grouped mean/SD tables, error-bar charts and explicitly scored fallback labels. [REPETITIONS.md](REPETITIONS.md) defines the updated scoring and repetition conventions.
 
 ## Workflow
 
 1. Open **Gold datasets → Upload CSV** and wait for import.
-2. Choose **Map columns**. Map document ID, text and gold label; defaults are `doc_id`, `text`, `gold_label`.
+2. Choose **Map columns**. Map document ID, text, gold label and optional context; defaults are `doc_id`, `text`, `gold_label`.
 3. Select single-label or multi-label mode. Multi-label cells split on a literal separator, default `|`. Empty label sets require explicit permission. Document IDs must be unique and nonempty after trimming, and texts nonempty. Labels are case-sensitive; empty components and duplicates are invalid.
 4. Open **Evaluations → New evaluation** and select the task and registered gold dataset.
-5. Select a connection, models and comma-separated temperatures. **Add combinations** creates the Cartesian product. Repeat with other connections if needed.
-6. Configure shared settings and optional variant-level JSON overrides. Overrides replace matching top-level query values; `extra_body` replaces that entire object. For example: `{"thinking":"off","temperature":0.5,"seed":42}`.
+5. Choose connection, models, parameter values and Off/On/Compare both switches. **Generate configurations** creates the Cartesian product; review each configuration. Repeat with other connections if needed.
+6. Choose seeds, joint/binary strategy, batch size, context, output fields and execution settings in the same configuration builder. Inspect the query estimate and actual-data prompt preview. See EXPERIMENTS.md.
 7. Start the evaluation. Each configuration becomes a persistent job; variants run sequentially with their configured request concurrency.
 8. Choose **Compare** to inspect quality, runtime, class metrics, confusion matrices, predictions and downloads. Pause/resume/cancel applies to eligible child runs. Each child also has an individual result view.
 
@@ -51,11 +51,11 @@ Quality and runtime appear together in the report, model comparison tables and c
 | `elapsed_seconds` | First start to finish, including pauses |
 | `documents_per_second` | Processed records / active seconds |
 | `successful_documents_per_second` | Valid records / active seconds |
-| `mean_document_seconds` | Sum of per-document latency including retries / processed records |
+| `mean_document_seconds` | Allocated request duration including retries / processed records |
 | `completion_tokens_per_second` | Reported output tokens / active seconds; unavailable token counts contribute 0 |
 | `timing_complete` | Whether the full active measurement is available |
 
-Per-document latencies overlap with parallel requests and must not be summed as job wall time. No-work rates appear as n/a. Legacy jobs and uncleanly interrupted timing cannot provide reliable active/elapsed comparisons. Model startup, caching, API network overhead, context lengths, output budgets and concurrency can affect timings. TextLab reports observed application runtime, not isolated GPU inference time.
+Per-document times allocate shared batch duration equally; they overlap with parallel requests and must not be summed as job wall time. No-work rates appear as n/a. Legacy jobs and uncleanly interrupted timing cannot provide reliable active/elapsed comparisons. Model startup, caching, API network overhead, context lengths, output budgets and concurrency can affect timings. TextLab reports observed application runtime, not isolated GPU inference time.
 
 ## Saved outputs and reports
 

@@ -26,7 +26,7 @@ def metric_rows(report,scope,classes=False,individual=False):
     rows=source['runs'] if individual else source['groups']
     for run in rows:
         query=run['snapshot']['query']
-        base={'variant':run['variant'],'model':query['model'],'temperature':query['temperature'],
+        base={'variant':run['variant'],'model':query['model'],'temperature':query['temperature'],'strategy':query.get('strategy','joint'),'batch_size':query.get('batch_size',1),'use_context':query.get('use_context',False),'rationale':query.get('rationale'),'evidence':query.get('evidence'),'alternatives':query.get('alternatives'),'confidence_enabled':query.get('confidence'),'thinking':query.get('thinking'),
               'seeds':json.dumps(run.get('seeds',[query.get('seed')])),'scope':scope,
               'runs':run.get('repeat_n',1),'expected_runs':run.get('expected_runs',1),'excluded_runs':run.get('excluded_runs',0)}
         def add(values,sd,counts):
@@ -168,6 +168,12 @@ def confidence_rows(report,scope):
                 if stat!='sd' or group.get('expected_runs',1)>1:
                     row[metric+'_'+stat]=value
         rows.append(row)
+        for category,confidence in group.get('binary_confidence',{}).items():
+            binary={'configuration':group['variant'],'group_id':group['group_id'],'category':category}
+            for metric,values in confidence.get('metrics',{}).items():
+                for stat,value in values.items():
+                    if stat!='sd' or group.get('expected_runs',1)>1:binary[metric+'_'+stat]=value
+            rows.append(binary)
     return rows
 
 
@@ -191,7 +197,7 @@ def html_report(report,scope):
 </body></html>'''
 
 
-PREDICTION_FIELDS=['self_reported_confidence','alternative_interpretations','candidate_interpretations','seed','fallback_used','variant','job_id','row_no','doc_id','text','gold_labels','predicted_labels','exact_match','status','error','rationale','evidence','thinking','raw','attempt_outputs','attempts','seconds']
+PREDICTION_FIELDS=['component_results','self_reported_confidence','alternative_interpretations','candidate_interpretations','seed','fallback_used','variant','job_id','row_no','doc_id','text','gold_labels','predicted_labels','exact_match','status','error','rationale','evidence','thinking','raw','attempt_outputs','attempts','seconds']
 
 
 def prediction_chunks(id,format='csv'):
@@ -218,6 +224,9 @@ def report_zip(report,scope):
     path=Path(handle.name);handle.close()
     try:
         with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as archive:
+            from .executor import request_chunks
+            with archive.open('requests.jsonl','w') as request_file:
+                for chunk in request_chunks([r['job_id'] for r in report['scopes'][scope]['runs']]):request_file.write(chunk.encode('utf-8'))
             archive.writestr('report.html',html_report(report,scope))
             archive.writestr('report.json',json.dumps(report,ensure_ascii=False,indent=2,allow_nan=False))
             archive.writestr('metrics.csv',table_csv(report,scope))

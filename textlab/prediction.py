@@ -13,14 +13,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from .db import connect, dumps, root, uid
-from .models import NewPrediction
-from .jobs import enqueue, snapshot_for
+from .models import NewPrediction, Variant, Query
+from .jobs import enqueue, snapshot_for, snapshot_query
 from .runtime import runtime_metrics
 from .evaluation import TERMINAL
 from .eval_api import fetch
 
 router=APIRouter(prefix='/api/predictions',tags=['Prediction'])
-FORMATS={'csv','json','jsonl','parquet','manifest','agreement_csv','agreement_jsonl'}
+FORMATS={'csv','json','jsonl','parquet','manifest','agreement_csv','agreement_jsonl','requests'}
 
 
 @router.post('',status_code=201)
@@ -32,43 +32,40 @@ def create_prediction(spec: NewPrediction):
             raise HTTPException(409,'Dataset must be fully imported and nonempty')
         if spec.text_column not in json.loads(dataset['columns_json']):
             raise HTTPException(422,'Unknown text column')
+        from .jobs import validate_mapping
+        try:validate_mapping(dataset,spec.text_column,spec.context_column)
+        except ValueError as exc:raise HTTPException(422,str(exc)) from exc
         source=None
+        variants=spec.variants or [Variant(name=spec.query.model,profile_id=spec.profile_id,query=spec.query)]
         if spec.source_evaluation_job_id:
             source=fetch(db,'jobs',spec.source_evaluation_job_id)
-            if not db.execute('SELECT 1 FROM evaluation_runs WHERE job_id=?',(source['id'],)).fetchone():
-                raise HTTPException(422,'Source job must belong to an evaluation')
-            if source['status'] not in ('completed','completed_with_errors'):
-                raise HTTPException(409,'Complete the evaluation run before reusing its configuration')
+            if not db.execute('SELECT 1 FROM evaluation_runs WHERE job_id=?',(source['id'],)).fetchone():raise HTTPException(422,'Source must belong to an evaluation')
+            if source['status'] not in ('completed','completed_with_errors'):raise HTTPException(409,'Reuse requires a completed evaluation run')
             saved=json.loads(source['snapshot'])
-            if spec.task_ids != [saved['task_id']]:
-                raise HTTPException(422,'Reused evaluation must use its evaluated task snapshot')
-            profile={'spec':dumps(saved['profile'])}
+            if spec.task_ids != [saved['task_id']]:raise HTTPException(422,'Reuse requires the evaluated task')
             tasks=[{'id':saved['task_id'],'revision':saved['task_revision'],'spec':dumps(saved['task'])}]
-        else:
-            profile=fetch(db,'profiles',spec.profile_id)
-            tasks=[fetch(db,'tasks',id) for id in spec.task_ids]
-        seeds = spec.seeds or [spec.query.seed]
-        if len(tasks)*len(seeds)>500:
+            variants=[Variant(name=saved.get('experiment_name','Evaluated configuration'),profile_id='snapshot',query=snapshot_query(saved))]
+        else:tasks=[fetch(db,'tasks',tid) for tid in spec.task_ids]
+        if len(tasks)*sum(len(v.seeds or spec.seeds or [v.query.seed]) for v in variants)>500:
             raise HTTPException(422,'Maximum 500 total prediction runs')
         id,now=uid(),time.time()
         db.execute('INSERT INTO predictions(id,name,dataset_id,created) VALUES(?,?,?,?)',(id,spec.name,spec.dataset_id,now))
-        jobs=[]
-        index=0
+        jobs=[];index=0
         for task in tasks:
-            for seed in seeds:
-                query=spec.query.model_copy(update={'seed':seed})
-                try:
-                    snapshot=snapshot_for(task,profile,query,spec.text_column)
-                except ValueError as exc:
-                    raise HTTPException(422,str(exc)) from exc
-                snapshot['prediction_id']=id
-                if source:
-                    snapshot['source_evaluation_job_id']=source['id']
-                    snapshot['source_evaluation_id']=saved['evaluation_id']
-                name=snapshot['task']['codebook']['title']
-                snapshot['experiment_name']=name
-                job=enqueue(db,f'{spec.name} / {name} · seed={seed}',dataset,snapshot,now+index*.000001)
-                db.execute('INSERT INTO prediction_runs VALUES(?,?,?,?)',(id,job,name,index));jobs.append(job);index+=1
+            for variant in variants:
+                profile={'spec':dumps(saved['profile'])} if source else fetch(db,'profiles',variant.profile_id)
+                for seed in (variant.seeds or spec.seeds or [variant.query.seed]):
+                    query=variant.query.model_copy(update={'seed':seed})
+                    try:snapshot=snapshot_for(task,profile,query,spec.text_column,spec.context_column)
+                    except ValueError as exc:raise HTTPException(422,str(exc)) from exc
+                    snapshot['prediction_id']=id
+                    if source:
+                        snapshot['source_evaluation_job_id']=source['id']
+                        snapshot['source_evaluation_id']=saved['evaluation_id']
+                    name=snapshot['task']['codebook']['title']
+                    snapshot['experiment_name']=name+' / '+variant.name
+                    job=enqueue(db,f'{spec.name} / {name} / {variant.name} · seed={seed}',dataset,snapshot,now+index*.000001)
+                    db.execute('INSERT INTO prediction_runs VALUES(?,?,?,?)',(id,job,name,index));jobs.append(job);index+=1
     return {'id':id,'job_ids':jobs}
 
 
@@ -85,7 +82,9 @@ def info(db,prediction):
         status=next((s for s in ('running','cancelling','pausing','queued','paused') if s in states),'queued')
     from .repetitions import aggregate_runs
     p.update(groups=aggregate_runs(runs),runs=runs,status=status,total=sum(r['total'] for r in runs),done=sum(r['done'] for r in runs),failed=sum(r['failed'] for r in runs),artifacts=[dict(r) for r in db.execute('SELECT format,bytes FROM prediction_artifacts WHERE prediction_id=? ORDER BY format',(p['id'],))])
-    p['query_count']={'planned':p['total'],'maximum_attempts':sum(r['total']*(r['snapshot']['query']['retries']+1) for r in runs),'runs':len(runs)}
+    from .jobs import request_counts
+    counts=[request_counts(r['total'],r['snapshot']) for r in runs]
+    p['query_count']={k:sum(c[k] for c in counts) for k in ('planned','maximum_attempts','decisions','documents','runs')}
     return p
 
 
@@ -122,7 +121,7 @@ def download(id: str,format: str):
         if p['artifact_status']!='ready':raise HTTPException(409,'Exports are not ready')
         row=db.execute('SELECT path FROM prediction_artifacts WHERE prediction_id=? AND format=?',(id,format)).fetchone()
     if not row or not Path(row['path']).is_file():raise HTTPException(404,'Stored export is missing from disk')
-    return FileResponse(row['path'],filename=f'prediction-{id}.{format.replace('_','.') if format!="manifest" else "manifest.json"}')
+    return FileResponse(row['path'],filename=f'prediction-{id}.{"requests.jsonl" if format=="requests" else format.replace('_','.') if format!="manifest" else "manifest.json"}')
 
 
 def prediction_rows(prediction):
@@ -141,6 +140,9 @@ def prediction_rows(prediction):
                 out['labels']=json.loads(out['labels']) if out['status'] in ('ok','fallback') else None
                 out['candidate_interpretations']=json.loads(out['candidate_interpretations'] or '[]');out['alternative_interpretations']=json.loads(out['alternative_interpretations'] or '[]');out['evidence']=json.loads(out['evidence'] or '[]');out['attempt_outputs']=json.loads(out['attempt_outputs'] or '[]')
                 out.update(seed=snapshot['query'].get('seed'),fallback_used=out['status']=='fallback',status=out['status'] or 'not_processed',task_id=snapshot['task_id'],task_name=run['task_name'],job_id=run['id'])
+                from .executor import component_details
+                with connect() as db:out['component_results']=component_details(db,run['id'],row['row_no'])
+                out['configuration']=snapshot['query']
                 yield out
             after=rows[-1]['row_no']
 
@@ -158,7 +160,7 @@ def build_artifacts(prediction):
         dataset=fetch(db,'datasets',prediction['dataset_id'])
         manifest=info(db,prediction)
     columns=json.loads(dataset['columns_json'])
-    meta=['self_reported_confidence','alternative_interpretations','candidate_interpretations','seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
+    meta=['component_results','configuration','self_reported_confidence','alternative_interpretations','candidate_interpretations','seed','fallback_used','job_id','task_id','task_name','row_no','labels','rationale','evidence','thinking','attempt_outputs','status','error','raw','attempts','seconds','prompt_tokens','completion_tokens']
     fields=['source.'+c for c in columns]+['prediction.'+c for c in meta]
     integer={'seed','row_no','attempts','prompt_tokens','completion_tokens'}
     schema=pa.schema([(f,pa.bool_() if f=='prediction.fallback_used' else pa.int64() if f.startswith('prediction.') and f[11:] in integer else pa.float64() if f in ('prediction.seconds','prediction.self_reported_confidence') else pa.string()) for f in fields])
@@ -185,6 +187,9 @@ def build_artifacts(prediction):
                 writer=csv.DictWriter(csvout,fieldnames=list(row));writer.writeheader()
             writer.writerow({k:safe_cell(dumps(v) if isinstance(v,(list,dict)) else v) for k,v in row.items()})
             jsonout.write(dumps(row)+'\n')
+    from .executor import request_chunks
+    with (staging/'requests.jsonl').open('w',encoding='utf-8') as output:
+        for chunk in request_chunks([r['id'] for r in manifest['runs']]):output.write(chunk)
     manifest.update(status='cancelled' if all(r['status']=='cancelled' for r in manifest['runs']) else 'completed_with_errors' if any(r['status']!='completed' for r in manifest['runs']) else 'completed',artifact_status='ready',framework_version=__version__,layout='one row per source record and task',created_at=time.time())
     (staging/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     if final.exists():shutil.rmtree(final)
@@ -192,7 +197,7 @@ def build_artifacts(prediction):
     with connect() as db:
         db.execute('DELETE FROM prediction_artifacts WHERE prediction_id=?',(prediction['id'],))
         for format in FORMATS:
-            path=final/('manifest.json' if format=='manifest' else 'agreement.'+format.split('_')[1] if format.startswith('agreement_') else 'results.'+format)
+            path=final/('requests.jsonl' if format=='requests' else 'manifest.json' if format=='manifest' else 'agreement.'+format.split('_')[1] if format.startswith('agreement_') else 'results.'+format)
             db.execute('INSERT INTO prediction_artifacts VALUES(?,?,?,?)',(prediction['id'],format,str(path),path.stat().st_size))
         db.execute("UPDATE predictions SET artifact_status='ready',artifact_error=NULL WHERE id=?",(prediction['id'],))
 

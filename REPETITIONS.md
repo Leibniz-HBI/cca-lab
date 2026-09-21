@@ -1,4 +1,4 @@
-# Error logs, fallback labels and repeated seed runs (0.4)
+# Error logs, fallback labels and repeated seed runs
 
 ## Inspecting job errors
 
@@ -17,11 +17,11 @@ The JSON response contains `rows`, `total`, `next_after`, `status` and `last_err
 
 ## Default fallback label
 
-Set **Default label after failed LLM attempts** in a task to one of its category labels. Leave it empty to retain the previous failure behavior. For multi-label tasks the configured fallback is a singleton label set, not a new category or an inferred label combination.
+Set **Default label after failed LLM attempts** in an experiment configuration to one of the task’s category IDs. Leave it empty to retain the previous failure behavior. For multi-label tasks the configured fallback is a singleton label set, not a new category or an inferred label combination.
 
 After an attempted LLM classification ends without a valid response, TextLab assigns that label with `status="fallback"` and `fallback_used=true`. Retries retain their existing semantics: `retries=2` allows three attempts; non-retryable HTTP errors terminate earlier. Raw responses, returned thinking and errors are preserved. No rationale or evidence is fabricated for the fallback.
 
-Rejected empty/overlong inputs and unprocessed or cancelled rows do not receive fallback labels. A valid response always takes precedence over the fallback. Existing job snapshots are unchanged if you later edit a task's default label.
+Rejected empty/overlong inputs and unprocessed or cancelled rows do not receive fallback labels. A valid response always takes precedence over the fallback. Existing job snapshots are unchanged if you later change configuration settings.
 
 Job failure counts include fallback assignments, with `fallback_count` identifying that subset. Such jobs remain **Completed with errors**. Individual-job and prediction exports retain both the assigned label and its flagged provenance.
 
@@ -38,7 +38,7 @@ The default common scope is the intersection of assigned predictions across all 
 
 ## Multiple seeds
 
-In **Evaluations** or **Prediction**, enter seeds such as `11;22;33`. Blank input produces one run using the existing single-seed setting or server default. Duplicate and malformed seeds are rejected. The UI accepts JavaScript-safe integers; the API accepts signed 64-bit integers.
+In **Evaluations** or **Prediction**, enter seeds such as `11;22;33`. The UI starts with seed 9721; blank uses 9721. API callers may explicitly set query.seed to null for a server-selected seed. Duplicate and malformed seeds are rejected. The UI accepts JavaScript-safe integers; the API accepts signed 64-bit integers.
 
 An evaluation with two models × two temperatures × three seeds creates **12 jobs**. A prediction with two tasks × three seeds creates **6 jobs**. Up to 100 distinct seeds, 50 base configurations/tasks and 500 expanded jobs per batch are supported. Check the expanded count before running costly experiments.
 
@@ -58,7 +58,7 @@ API example:
 
 `seeds` also accepts a semicolon-separated string. Each evaluation variant may optionally provide its own `seeds` list. Precedence is variant seeds → evaluation seeds → `query.seed`. Prediction requests accept top-level seeds alongside the existing `task_ids`, dataset, connection, text column and query fields.
 
-The concrete seed is saved in each job's query snapshot and sent to the provider. Prediction exports now include `seed` and retain one row per input × task × seed. Labels remain separate categorical assignments; TextLab does not average labels or silently take a majority vote.
+The concrete seed is saved in each job's query snapshot and sent to the provider. Prediction exports now include `seed` and retain one row per input × task × configuration × seed. Labels remain separate categorical assignments; TextLab does not average labels or silently take a majority vote.
 
 ## Means, standard deviations and error bars
 
@@ -72,8 +72,6 @@ Report JSON retains individual `runs` and adds aggregated `groups`, each with me
 
 Changing a seed does not guarantee that a particular server/model will produce different outputs or be fully reproducible. Seed support and stochastic sampling depend on the backend, temperature and other settings.
 
-## Migration
+## Upgrade
 
-Version 0.4 adds `results.error_count`, a partial error index and `jobs.fallback_count`. It backfills error counts from existing attempt logs and final errors, and invalidates old evaluation reports once so the worker rebuilds grouped summaries. This initial scan can take time on large result databases. Existing tasks default to no fallback; historical results are not relabelled. Saved 0.3 prediction files remain unchanged; newly generated files include seed/fallback metadata.
-
-Stop both processes and back up the full data directory before upgrading. Preserve `.env` and the data volume. See `UPGRADE.md`.
+See UPGRADE.md for the schema 6→7 upgrade and preservation of existing snapshots.

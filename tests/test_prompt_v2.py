@@ -37,24 +37,26 @@ def test_reference_examples_do_not_fabricate_annotations():
 @pytest.mark.parametrize('mode',['json_schema','json_object','none'])
 def test_preview_equals_executed_request(provider,mode,tmp_path,monkeypatch):
     monkeypatch.setenv('TEXTLAB_DATA',str(tmp_path))
-    t=instrument();q=Query(model='m',structured_output=mode,retries=0);p=Profile(name='P',provider=provider,base_url='http://localhost')
+    t=instrument();q=Query(model='m',structured_output=mode,retries=0,rationale=True,evidence=True,alternatives=True,confidence=True);p=Profile(name='P',provider=provider,base_url='http://localhost')
     with TestClient(app) as client:
         preview=client.post('/api/tasks/preview-request',json={'task':t.model_dump(),'query':q.model_dump(),'provider':provider,'text':'Alpha'})
         assert preview.status_code==200,preview.text
     captured=[]
     def handle(req):
         captured.append(json.loads(req.content))
-        content=dumps(mock_response(t,'Alpha',['A'],'Alpha'))
+        content=dumps({'results':[{'id':'1',**mock_response(t,'Alpha',['A'],'Alpha')}]})
         return httpx.Response(200,json={'message':{'content':content}} if provider=='ollama' else {'choices':[{'message':{'content':content}}]})
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
-        result=classify({'task':t.model_dump(),'query':q.model_dump(),'profile':p.model_dump()},'Alpha',client)
-    assert result['status']=='ok'
-    assert result['attempt_outputs'][0]['prompt_protocol']=='cca-reference-v2'
+        from textlab.experiment import compile_request,perform
+        items=[{'id':'1','text':'Alpha'}]
+        path,body,target=compile_request(t,q,p,items)
+        result=perform(p,q,target,items,path,body,client)
+    assert result['results']['1']['status']=='ok'
     assert captured[0]==preview.json()['request']
     assert ('Output JSON Schema:' in captured[0]['messages'][0]['content'])==(mode!='json_schema')
     if mode=='json_schema':
         native=captured[0]['format'] if provider=='ollama' else captured[0]['response_format']['json_schema']['schema']
-        assert native==output_schema(t)
+        assert native['properties']['results']['items']['properties']['labels']==output_schema(t)['properties']['labels']
 
 
 def test_empty_boundary_valid_but_wrong_types_and_missing_fields_fail():

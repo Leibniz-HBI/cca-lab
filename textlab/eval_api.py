@@ -60,6 +60,8 @@ def save_gold(spec: GoldSet, edit_id=None):
             raise HTTPException(422,'Column mapping contains unknown columns')
         existing = fetch(db, 'gold_sets', edit_id) if edit_id else None
         used = existing and db.execute('SELECT 1 FROM evaluations WHERE gold_id=? LIMIT 1', (edit_id,)).fetchone()
+        if spec.context_column and spec.context_column not in json.loads(dataset["columns_json"]):
+            raise HTTPException(422,"Unknown context column")
         id = uid() if not existing or used else edit_id
         if existing and not used:
             db.execute('DELETE FROM gold_rows WHERE gold_id=?', (id,))
@@ -113,7 +115,7 @@ def create_evaluation(spec: NewEvaluation):
         dataset = fetch(db,'datasets',gold['dataset_id'])
         profiles = {v.profile_id:fetch(db,'profiles',v.profile_id) for v in spec.variants}
         id, now = uid(),time.time()
-        db.execute('INSERT INTO evaluations(id,name,gold_id,task_snapshot,created) VALUES(?,?,?,?,?)',(id,spec.name,spec.gold_id,dumps({'task':task.model_dump(),'task_id':task_row['id'],'task_revision':task_row['revision']}),now))
+        db.execute('INSERT INTO evaluations(id,name,gold_id,task_snapshot,created) VALUES(?,?,?,?,?)',(id,spec.name,spec.gold_id,dumps({'task':{'codebook':task.codebook},'task_id':task_row['id'],'task_revision':task_row['revision']}),now))
         jobs = []
         ordinal = 0
         for variant in spec.variants:
@@ -121,7 +123,7 @@ def create_evaluation(spec: NewEvaluation):
             for seed in seeds:
                 query = variant.query.model_copy(update={'seed': seed})
                 try:
-                    snapshot = snapshot_for(task_row,profiles[variant.profile_id],query,mapping['text_column'])
+                    snapshot = snapshot_for(task_row,profiles[variant.profile_id],query,mapping['text_column'],mapping.get('context_column'))
                 except ValueError as exc:
                     raise HTTPException(422,str(exc)) from exc
                 run_name = variant.name + (f' · seed={seed}' if len(seeds)>1 else '')
@@ -163,7 +165,9 @@ def evaluation_info(db, row, detail=False):
     else:
         status = 'paused'
     row.update(status=status,report_ready=bool(ready),runs=runs,total=sum(r['total'] for r in runs),done=sum(r['done'] for r in runs),failed=sum(r['failed'] for r in runs))
-    row['query_count']={'planned':row['total'],'maximum_attempts':sum(r['total']*(r['query']['retries']+1) for r in runs),'runs':len(runs)}
+    from .jobs import request_counts
+    counts=[request_counts(r['total'],{'query':r['query'],'task':row['task_snapshot']['task']}) for r in runs]
+    row['query_count']={k:sum(c[k] for c in counts) for k in ('planned','maximum_attempts','decisions','documents','runs')}
     return row
 
 
@@ -266,6 +270,8 @@ def prediction_rows(id, job_id=None, after=0, limit=None):
                 result['status'] = result['status'] or 'not_processed'
                 result['exact_match'] = set(result['gold_labels']) == set(result['predicted_labels']) if result['predicted_labels'] is not None else False
                 result.update(variant=run['name'],job_id=run['job_id'],seed=json.loads(run['snapshot'])['query'].get('seed'),fallback_used=result['status']=='fallback')
+                from .executor import component_details
+                with connect() as db:result['component_results']=component_details(db,run['job_id'],row['row_no'])
                 yield result
             cursor = rows[-1]['row_no']
             emitted += len(rows)

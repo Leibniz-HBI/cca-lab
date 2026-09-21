@@ -10,7 +10,7 @@ All newly generated prompts use this fixed order, without an order setting:
 4. `labels`
 5. `self_reported_confidence`
 
-Existing switches for evidence, candidate comparison (`execution_defaults.alternatives` in task JSON), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. Schema properties, required-field lists, prompt instructions and demo responses use this order. Reference examples in cca-reference-v2 contain only supplied codebook annotations.
+Existing switches for evidence, candidate comparison (`query.alternatives` in experiment configurations), rationale and confidence remain independent. Disabled fields are omitted; the relative order of enabled fields never changes. Schema properties, required-field lists, prompt instructions and demo responses use this order. Reference demonstrations contain only supplied codebook annotations.
 
 Evidence entries associate an exact input quote with **any category in the codebook**, including categories not selected in the final decision. The prompt requests relevant supporting and conflicting signals before choosing a label. Quotes still require exact substring validation and receive character offsets. An unknown label or invented quote is rejected. Empty evidence is allowed when the decision concerns absent evidence.
 
@@ -52,7 +52,7 @@ Self-reported confidence is a finite number between 0 and 1, estimating exact ag
 
 JSON object order is not a semantic JSON constraint. TextLab requests the fixed generation sequence everywhere but does not reject an otherwise valid response solely because a provider returns its properties in another order, or pretend that reserializing a completed answer changes generation. Raw responses are preserved for auditing actual order. Backend compliance and quality gains require testing with the selected model; this release does not establish better classification performance.
 
-New job snapshots and inference attempt logs identify the fixed protocol as `cca-reference-v2`. It is not a task/query option. Increase maximum output tokens when using rich candidates and evidence. No extra LLM calls are added, so query-count estimates are unchanged.
+New job snapshots identify the fixed protocol as `experiment-v3`. It is not a task/query option. Increase maximum output tokens when using rich candidates and evidence. No extra LLM calls are added, so query-count estimates are unchanged.
 
 ## Storage and downloads
 
@@ -93,7 +93,7 @@ Risk curves accept entire confidence ties; they never choose a favorable orderin
 
 ## Query-count preview
 
-Evaluation forms show **gold rows × added model/parameter configurations × seeds**. Model and temperature choices count only after **Add combinations**; the list of added configurations is authoritative. Prediction forms show **source rows × selected tasks × seeds × one model configuration**. Blank seeds means one run, using the query/server default. Concurrency changes throughput, not request count.
+Evaluation and prediction forms show the generated configurations × tasks × seed runs. Nominal requests sum ceil(documents / batch_size) per run, multiplied by category count in binary mode. Character splits and retries can add requests. The interface shows a conservative attempt ceiling separately. See EXPERIMENTS.md.
 
 The preview also sums the maximum attempts including each configuration's retry limit. After creation, `query_count` in experiment details records the exact planned total, maximum attempts and run count derived from snapshots. API-created evaluations also honor per-variant seed lists. If a UI seed or override value is invalid, the estimate reports the error.
 

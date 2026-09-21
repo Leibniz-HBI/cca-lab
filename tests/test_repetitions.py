@@ -1,3 +1,4 @@
+from task_fixtures import legacy_jobs
 from task_fixtures import task_spec
 import csv
 import io
@@ -61,7 +62,7 @@ def test_fallback_after_attempts_preserves_errors_and_thinking(monkeypatch):
         Task(**task_spec(TASK, default_label='UNKNOWN'))
     assert Task(**task_spec(TASK, default_label='B', mode='multi')).default_label == 'B'
 
-def test_live_error_log_pagination_and_recovered_attempts(client, monkeypatch):
+def test_saved_snapshot_live_error_log_pagination_and_recovered_attempts(client, monkeypatch):
     did, tid, pid, _ = setup(client)
     job = client.post('/api/jobs', json={'name': 'Errors', 'dataset_id': did, 'task_id': tid, 'profile_id': pid, 'text_column': 'text', 'query': {'model': 'm', 'concurrency': 1}}).json()['id']
     import textlab.worker as w
@@ -77,12 +78,12 @@ def test_live_error_log_pagination_and_recovered_attempts(client, monkeypatch):
             r['attempt_outputs'].append({'attempt': 2, 'error': None, 'content': '{"labels":["A"]}'})
         return r
     monkeypatch.setattr(w, 'classify', fake)
-    tick()
+    legacy_jobs(default_label="B"); tick()
     page = client.get(f'/api/jobs/{job}/errors?limit=1').json()
     assert page['status'] == 'running' and page['total'] == 1
     assert page['rows'][0]['fallback_used'] and page['rows'][0]['source']['doc_id'] == '001'
     for _ in range(4):
-        tick()
+        legacy_jobs(default_label="B"); tick()
     page = client.get(f'/api/jobs/{job}/errors?after=1&limit=1').json()
     assert page['next_after'] == 2 and page['rows'][0]['status'] == 'ok'
     assert client.get(f'/api/jobs/{job}/errors?include_recovered=false').json()['total'] == 1
@@ -94,7 +95,8 @@ def test_live_error_log_pagination_and_recovered_attempts(client, monkeypatch):
     parquet = pq.read_table(io.BytesIO(client.get(f'/api/jobs/{job}/export?format=parquet').content))
     assert parquet['classification.fallback_used'].to_pylist() == [True, False]
 
-def test_seeded_evaluation_means_sample_sd_and_fallback_scoring(client, monkeypatch):
+
+def test_saved_snapshot_seeded_evaluation_means_sample_sd_and_fallback_scoring(client, monkeypatch):
     _, tid, pid, gid = setup(client, task_spec(TASK, default_label='B'))
     import textlab.worker as w
     original = w.classify
@@ -111,6 +113,7 @@ def test_seeded_evaluation_means_sample_sd_and_fallback_scoring(client, monkeypa
     response = client.post('/api/evaluations', json=body)
     assert response.status_code == 201, response.text
     id = response.json()['id']
+    legacy_jobs(default_label='B')
     state = drain(client, '/api/evaluations/' + id)
     assert len(state['runs']) == 2 and {r['query']['seed'] for r in state['runs']} == {11, 22}
     report = client.get('/api/evaluations/' + id + '/report').json()
@@ -128,6 +131,7 @@ def test_seeded_evaluation_means_sample_sd_and_fallback_scoring(client, monkeypa
         assert chart.status_code == 200 and 'sample SD' in chart.text
     predicted = [json.loads(s) for s in client.get(f'/api/evaluations/{id}/export-predictions?format=jsonl').text.splitlines()]
     assert len(predicted) == 4 and predicted[-1]['predicted_labels'] == ['B'] and predicted[-1]['fallback_used']
+
 
 def test_prediction_task_times_seed_product_and_exports(client):
     did, tid, pid, _ = setup(client)

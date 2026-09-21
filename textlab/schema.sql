@@ -51,3 +51,16 @@ CREATE TABLE prediction_artifacts (
           prediction_id TEXT NOT NULL REFERENCES predictions(id), format TEXT NOT NULL,
           path TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(prediction_id,format)) WITHOUT ROWID;
 CREATE INDEX result_errors ON results(job_id,row_no) WHERE error_count>0;
+
+CREATE TABLE llm_requests (
+ id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+ category TEXT NOT NULL, batch_start INTEGER NOT NULL, inputs TEXT NOT NULL,
+ request_json TEXT NOT NULL, status TEXT NOT NULL, output_json TEXT,
+ created REAL NOT NULL, seconds REAL NOT NULL DEFAULT 0,
+ prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX request_job ON llm_requests(job_id,created);
+CREATE TABLE components (
+ job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, row_no INTEGER NOT NULL,
+ category TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+ result TEXT, request_ids TEXT NOT NULL DEFAULT '[]',
+ PRIMARY KEY(job_id,row_no,category)) WITHOUT ROWID;

@@ -15,3 +15,12 @@ aside{overflow-y:auto}.step-number{display:grid;place-items:center;flex:0 0 26px
 .stat .stat-action{display:block;margin-top:10px;padding:0;border:0;background:transparent;color:#007f87;text-align:left;font-size:13px;font-weight:600}
 .stat .stat-action:hover{text-decoration:underline}
 @media(max-width:600px){.task-import-panel{padding:16px}.task-import-panel button{width:100%}}
+
+.experiment-builder{padding:22px;border:1px solid #d8e5e8;border-radius:14px;background:#f6f9fc;margin:20px 0}
+.config-section{border-top:1px solid #d8e5e8;padding:14px 0;margin-top:12px}
+.config-section summary{font-weight:650;cursor:pointer;margin-bottom:12px}
+.option-help{position:relative;display:inline-block;cursor:help;color:#007f87;font-size:12px;font-weight:700;border:1px solid currentColor;border-radius:50%;width:16px;height:16px;text-align:center;line-height:14px}
+.option-help [role=tooltip]{display:none;position:absolute;z-index:30;left:0;bottom:24px;background:#142c43;color:white;padding:12px;border-radius:8px;width:260px;max-width:70vw;font-size:13px;font-weight:400;line-height:1.5;box-shadow:0 4px 18px #0003}
+.option-help:hover [role=tooltip],.option-help:focus [role=tooltip],.option-help:focus-within [role=tooltip]{display:block}
+#configurations-table input{min-width:200px}#configuration-preview{max-height:600px;overflow:auto}
+@media(max-width:600px){.experiment-builder{padding:12px}.option-help [role=tooltip]{left:auto;right:0}}

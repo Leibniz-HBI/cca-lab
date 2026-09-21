@@ -30,7 +30,7 @@ def setup(client):
     return (did, tasks, profile)
 
 def predict(client, did, tasks, profile):
-    response = client.post('/api/predictions', json={'name': 'Two tasks', 'dataset_id': did, 'task_ids': tasks, 'profile_id': profile, 'text_column': 'text', 'query': {'model': 'demo', 'concurrency': 2}})
+    response = client.post('/api/predictions', json={'name': 'Two tasks', 'dataset_id': did, 'task_ids': tasks, 'profile_id': profile, 'text_column': 'text', 'query': {'model': 'demo', 'concurrency': 2,'rationale':True,'evidence':True}})
     assert response.status_code == 201, response.text
     return response.json()['id']
 
@@ -49,8 +49,8 @@ def test_multitask_durable_formats_and_snapshots(client):
     assert client.delete('/api/profiles/' + profile).status_code == 200
     assert client.put('/api/tasks/' + tasks[0] + '?revision=1', json=task_spec(TASK, name='Changed')).status_code == 200
     p = finish(client, id)
-    assert p['status'] == 'completed' and p['done'] == 4 and (len(p['artifacts']) == 7)
-    assert [r['snapshot']['task']['execution_defaults']['thinking'] for r in p['runs']] == ['off', 'high']
+    assert p['status'] == 'completed' and p['done'] == 4 and (len(p['artifacts']) == 8)
+    assert [r['snapshot']['query']['thinking'] for r in p['runs']] == ['default', 'default']
     assert p['runs'][0]['task_name'] == 'Topic'
     for r in p['runs']:
         assert r['runtime']['active_seconds'] > 0 and r['runtime']['documents_per_second'] > 0
@@ -71,7 +71,7 @@ def test_multitask_durable_formats_and_snapshots(client):
     table = pq.read_table(io.BytesIO(client.get('/api/predictions/' + id + '/download/parquet').content))
     assert table.num_rows == 4 and table['source.doc_id'].to_pylist() == ['001', '002', '001', '002']
     manifest = client.get('/api/predictions/' + id + '/download/manifest').json()
-    assert len(manifest['runs']) == 2 and manifest['framework_version'] == '0.11.1'
+    assert len(manifest['runs']) == 2 and manifest['framework_version'] == '0.12.0'
     assert client.delete('/api/predictions/' + id).status_code == 200
     assert not folder.exists() and client.get('/api/jobs').json() == []
 

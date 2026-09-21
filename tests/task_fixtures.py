@@ -33,3 +33,16 @@ def task_spec(base=None, **options):
         else:
             result["execution_defaults"][key] = value
     return result
+
+
+def legacy_jobs(**defaults):
+    """Exercise resume of immediately preceding single-request snapshots."""
+    import json
+    from textlab.db import connect,dumps
+    with connect() as db:
+        for row in db.execute('SELECT id,snapshot FROM jobs').fetchall():
+            snapshot=json.loads(row['snapshot'])
+            snapshot['prompt_protocol']='cca-reference-v2'
+            snapshot['query']['prompt_protocol']='cca-reference-v2'
+            snapshot['query'].update(defaults)
+            db.execute('UPDATE jobs SET snapshot=? WHERE id=?',(dumps(snapshot),row['id']))

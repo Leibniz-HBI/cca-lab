@@ -27,7 +27,7 @@ def test_roundtrip_and_execution_semantics(client):
     doc=codebook();response=client.post('/api/tasks/import-cca',json=doc)
     assert response.status_code==201,response.text
     id=response.json()['id'];task=client.get('/api/tasks').json()[0]['spec']
-    assert task['codebook']==doc and set(task)=={'codebook','execution_defaults'}
+    assert task['codebook']==doc and set(task)=={'codebook'}
     prompt=messages(Task(**task),Query(model='mock'),'Wonderful.')
     for value in ['sentence','Explicit praise','Irony','Check attribution.','Positive','Use the preceding sentence']:
         assert value in prompt[0]['content']
@@ -78,7 +78,7 @@ def test_native_export_and_import(client):
     assert out.status_code==200 and out.json()==codebook()
     assert client.post('/api/tasks/import-cca',json=out.json()).status_code==201
     saved=next(t for t in client.get('/api/tasks').json() if t['id']==id)
-    assert saved['spec']['execution_defaults']['thinking']=='high'
+    assert 'execution_defaults' not in saved['spec']
     assert saved['spec']['codebook']==codebook()
 
 
@@ -150,7 +150,7 @@ def test_schema_roundtrip_is_lossless_and_not_limited_to_old_task_bounds(client)
     id=created.json()['id']
     assert client.get('/api/tasks/'+id+'/export-cca').json()==doc
     spec=client.get('/api/tasks').json()[0]['spec']
-    assert set(spec)=={'codebook','execution_defaults'}
+    assert set(spec)=={'codebook'}
     assert spec['codebook']==doc
 
 
