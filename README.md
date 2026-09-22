@@ -1,6 +1,6 @@
 # CCA-Lab
 
-A Python workbench for reproducible LLM-based content analysis using CCA Schema codebooks.
+A Python workbench for reproducible LLM-based Computational Content Analysis (CCA) using [CCA-Schema](https://leibniz-hbi.github.io/cca-schema) codebooks.
 
 ## Core features
 
