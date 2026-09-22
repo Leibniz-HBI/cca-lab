@@ -1,0 +1,31 @@
+// Run with node tests/configurations_unit.cjs; no browser dependencies.
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),path=require('path');
+const elements={};
+const ctx=vm.createContext({document:{addEventListener(){}},$:(s)=>elements[s],num:String,edit:{kind:'evaluation'},assert});
+for(const file of ['repetitions.js','configurations.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../textlab/static',file),'utf8'),ctx);
+const names=vm.runInContext('experimentFields.flatMap(x=>x[1].map(f=>[f[0],String(f[2])]))',ctx);
+for(const [key,value] of names)elements['[name=config_'+key+']']={value};
+for(const key of ['manual_models','name','profile','extra_body'])elements['[name=config_'+key+']']={value:key==='extra_body'?'{}':''};
+elements['[name=config_models]']={selectedOptions:[{value:'m1'},{value:'m2'}]};
+elements['#editor']={open:true};elements['#query-estimate']={};
+for(const [key,value] of Object.entries({top_p:'0.8, 1',examples_per_category:'0, 3',batch_size:'1, 10',strategy:'both',seeds:'9721, 9722'}))elements['[name=config_'+key+']'].value=value;
+vm.runInContext(`
+renderConfigurations=()=>{};
+selectedExperimentTasks=()=>[3,5].map(n=>({spec:{codebook:{task:{categories:Array(n).fill({})}}}}));
+experimentMapping=()=>({total:101});
+generateConfigurations();
+assert.equal(experimentVariants.length,32);
+assert.equal(experimentVariants.reduce((n,v)=>n+v.seeds.length,0),64);
+queryEstimate();
+assert.ok($('#query-estimate').innerHTML.includes('Planned LLM queries: 17920'));
+assert.ok($('#query-estimate').innerHTML.includes('128 seed runs'));
+assert.ok($('#query-estimate').innerHTML.includes('129280 attempts'));
+assert.throws(()=>parseSeedInput('1;2'));
+assert.throws(()=>parseSeedInput('1,,2'));
+assert.throws(()=>parseSeedInput('1,1'));
+$('[name=config_examples_per_category]').value='0,';
+assert.throws(configurationValues);
+$('[name=config_examples_per_category]').value='0, 0, 3';
+assert.equal(configurationValues().examples_per_category.length,2);
+`,ctx);
+console.log('PASS: Cartesian variants, comma seeds, input validation and mixed-task query counts');

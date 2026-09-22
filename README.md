@@ -54,7 +54,7 @@ Both processes must share `TEXTLAB_DATA` and API-key environment variables. Comp
 1. **Define tasks → New task:** create a CCA codebook with title, description, categories, instructions and examples. Choose single-label or multi-label classification. Execution settings belong to job configurations.
 2. **Configuration → LLM connections → New connection:** configure your model server. Use **List models** to check it. The demo provider always returns the first category and is only a plumbing test.
 3. **Prepare data → Upload CSV:** choose delimiter and encoding; wait for **Ready**.
-4. **Run predictions → New prediction:** select the dataset, text and optional context columns, and one or more tasks. Generate and review experiment configurations before starting. Use comma-separated parameters and Off/On/Compare both controls to create variations; semicolon-separated seeds repeat each configuration.
+4. **Run predictions → New prediction:** select the dataset, text and optional context columns, and one or more tasks. Generate and review experiment configurations before starting. Use comma-separated parameters and Off/On/Compare both controls to create variations; comma-separated seeds repeat each configuration.
 5. Open the prediction batch to monitor task runs, pause/resume/cancel, inspect individual results and download persisted exports.
 
 The **Jobs & monitoring** workspace remains available for individual jobs, including child runs belonging to predictions or evaluations.

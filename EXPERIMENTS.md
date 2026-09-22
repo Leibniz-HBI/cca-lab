@@ -4,7 +4,7 @@ Tasks describe CCA codebooks only. Evaluation and prediction share the same conf
 
 ## Variations
 
-Boolean options offer Off, On and Compare both. Numeric and enumerated parameters accept comma-separated values. Seeds use semicolons and repeat each configuration; they are not averaged within an individual prediction. The generated configuration table is authoritative. Editing builder controls does not change already generated configurations until Generate is selected. Each option has a hover/focus explanation. Limits: 50 configurations, 100 seeds, 500 expanded jobs.
+Boolean options offer Off, On and Compare both. Numeric and enumerated parameters accept comma-separated values. Seeds use commas and repeat each configuration; they are not averaged within an individual prediction. The generated configuration table is authoritative. Editing builder controls does not change already generated configurations until Generate is selected. Each option has a hover/focus explanation. Limits: 50 configurations, 100 seeds, 500 expanded jobs.
 
 Configurations include sampling, thinking, output fields, few-shot limits, strategy, batch size, context, concurrency, retry budget, input limits, structured output and fallback category. Additional provider parameters accept JSON. Invalid settings or unavailable category IDs are rejected before jobs are inserted. Binary strategy requires all selected tasks to be multi-label. A shared fallback ID must exist in every selected task.
 

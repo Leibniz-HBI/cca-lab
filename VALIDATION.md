@@ -1,4 +1,4 @@
-# Validation — TextLab 0.12.0
+# Validation — TextLab 0.12.1
 
 139 Python tests passed. New coverage exercises both provider request shapes, joint/binary strategy, batching and context combinations; empty label sets; partial retries; shared token accounting; binary component aggregation and fallback; pause/resume and interrupted request budgets; HTTP failure handling; configuration expansion; preview endpoints; Parquet and request exports; and the schema 6→7 upgrade preserving saved snapshots. Existing CCA, quality/runtime, confidence, repetition, deletion, error-log and current-snapshot regression checks remain included.
 
@@ -15,3 +15,7 @@ TEXTLAB_TEST_URL=http://127.0.0.1:8099 node tests/experiments_browser.cjs
 ```
 
 Use a separate empty data directory for `node tests/cca_browser.cjs`. Optional `TEXTLAB_SCREENSHOT_DIR` controls screenshot output. Browser tests create test data and model connections. Use requirements.lock for reproducible Python dependencies.
+
+## 0.12.1 checks
+
+All 139 Python tests passed after switching seed-string parsing to commas. `node tests/configurations_unit.cjs` passed comma-list Cartesian expansion, seed validation, duplicate-value normalization, rejection of empty list entries, and mixed-task query estimates. The backend independently produced identical totals for 101 documents, two models, two Top-P values, two few-shot counts, batch sizes 1/10, joint/binary strategies, two seeds and tasks with 3/5 categories: 128 runs, 17,920 nominal requests, 129,280 maximum attempts. Browser workflow evidence above refers to 0.12.0; the portable browser script now uses comma-separated seeds.

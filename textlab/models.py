@@ -192,9 +192,9 @@ def parse_seeds(value):
         return None
     if isinstance(value, str):
         try:
-            value = [int(x.strip()) for x in value.split(';')]
+            value = [int(x.strip()) for x in value.split(',')]
         except ValueError as exc:
-            raise ValueError("Seeds must be semicolon-separated integers") from exc
+            raise ValueError("Seeds must be comma-separated integers") from exc
     if not isinstance(value, list) or not 1 <= len(value) <= 100:
         raise ValueError("Supply 1 to 100 seeds")
     if any(type(x) is not int or not -(2**63) <= x < 2**63 for x in value):

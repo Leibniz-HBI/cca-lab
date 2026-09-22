@@ -19,7 +19,7 @@
  await page.evaluate(()=>location.hash='evaluations');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');
  for(const [key,value] of [['max_tokens','8192'],['retries','3'],['seeds','9721']])if(await page.locator('[name=config_'+key+']').inputValue()!==value)throw Error('Wrong default '+key);
  await page.locator('[name=config_strategy]').selectOption('both');await page.locator('[name=config_use_context]').selectOption('both');await page.locator('[name=config_evidence]').selectOption('both');
- await page.locator('[name=config_seeds]').fill('9721;9722');
+ await page.locator('[name=config_seeds]').fill('9721,9722');
  await page.locator('summary',{hasText:'Examples and batching'}).click();await page.locator('[name=config_batch_size]').fill('2');
  await page.locator('[data-action=config-generate]').click();
  if(await page.locator('#configurations-table tbody tr').count()!==8)throw Error('Wrong variation count');

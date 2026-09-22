@@ -2,8 +2,8 @@
 let errorAfter=0;
 function parseSeedInput(value){
  if(!value?.trim())return null;
- const parts=value.split(';').map(s=>s.trim());
- if(parts.some(s=>!/^[-+]?\d+$/.test(s)||!Number.isSafeInteger(Number(s))))throw Error('Seeds must be semicolon-separated safe integers.');
+ const parts=value.split(',').map(s=>s.trim());
+ if(parts.some(s=>!/^[-+]?\d+$/.test(s)||!Number.isSafeInteger(Number(s))))throw Error('Seeds must be comma-separated safe integers.');
  const seeds=parts.map(Number);
  if(new Set(seeds).size!==seeds.length)throw Error('Seeds must be unique.');
  if(seeds.length>100)throw Error('Maximum 100 seeds.');

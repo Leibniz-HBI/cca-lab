@@ -38,7 +38,7 @@ The default common scope is the intersection of assigned predictions across all 
 
 ## Multiple seeds
 
-In **Evaluations** or **Prediction**, enter seeds such as `11;22;33`. The UI starts with seed 9721; blank uses 9721. API callers may explicitly set query.seed to null for a server-selected seed. Duplicate and malformed seeds are rejected. The UI accepts JavaScript-safe integers; the API accepts signed 64-bit integers.
+In **Evaluations** or **Prediction**, enter seeds such as `11,22,33`. The UI starts with seed 9721; blank uses 9721. API callers may explicitly set query.seed to null for a server-selected seed. Duplicate and malformed seeds are rejected. The UI accepts JavaScript-safe integers; the API accepts signed 64-bit integers.
 
 An evaluation with two models × two temperatures × three seeds creates **12 jobs**. A prediction with two tasks × three seeds creates **6 jobs**. Up to 100 distinct seeds, 50 base configurations/tasks and 500 expanded jobs per batch are supported. Check the expanded count before running costly experiments.
 
@@ -56,7 +56,7 @@ API example:
 }
 ```
 
-`seeds` also accepts a semicolon-separated string. Each evaluation variant may optionally provide its own `seeds` list. Precedence is variant seeds → evaluation seeds → `query.seed`. Prediction requests accept top-level seeds alongside the existing `task_ids`, dataset, connection, text column and query fields.
+`seeds` also accepts a comma-separated string. Each evaluation variant may optionally provide its own `seeds` list. Precedence is variant seeds → evaluation seeds → `query.seed`. Prediction requests accept top-level seeds alongside the existing `task_ids`, dataset, connection, text column and query fields.
 
 The concrete seed is saved in each job's query snapshot and sent to the provider. Prediction exports now include `seed` and retain one row per input × task × configuration × seed. Labels remain separate categorical assignments; TextLab does not average labels or silently take a majority vote.
 

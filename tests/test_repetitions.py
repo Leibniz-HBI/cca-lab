@@ -109,7 +109,7 @@ def test_saved_snapshot_seeded_evaluation_means_sample_sd_and_fallback_scoring(c
             r.update(status='fallback', labels=['B'], error='Invalid output')
         return r
     monkeypatch.setattr(w, 'classify', fake)
-    body = {'name': 'Repeated', 'task_id': tid, 'gold_id': gid, 'seeds': '11;22', 'variants': [{'name': 'Config', 'profile_id': pid, 'query': {'model': 'm'}}]}
+    body = {'name': 'Repeated', 'task_id': tid, 'gold_id': gid, 'seeds': '11,22', 'variants': [{'name': 'Config', 'profile_id': pid, 'query': {'model': 'm'}}]}
     response = client.post('/api/evaluations', json=body)
     assert response.status_code == 201, response.text
     id = response.json()['id']
@@ -136,7 +136,7 @@ def test_saved_snapshot_seeded_evaluation_means_sample_sd_and_fallback_scoring(c
 def test_prediction_task_times_seed_product_and_exports(client):
     did, tid, pid, _ = setup(client)
     other = client.post('/api/tasks', json=task_spec(TASK, name='Other')).json()['id']
-    response = client.post('/api/predictions', json={'name': 'Repeat prediction', 'dataset_id': did, 'task_ids': [tid, other], 'profile_id': pid, 'text_column': 'text', 'seeds': '1;2;3', 'query': {'model': 'm'}})
+    response = client.post('/api/predictions', json={'name': 'Repeat prediction', 'dataset_id': did, 'task_ids': [tid, other], 'profile_id': pid, 'text_column': 'text', 'seeds': '1,2,3', 'query': {'model': 'm'}})
     assert response.status_code == 201, response.text
     id = response.json()['id']
     p = drain(client, '/api/predictions/' + id)
@@ -160,7 +160,7 @@ def test_cancelled_seed_does_not_empty_common_scope(client):
     assert g['repeat_n'] == 1 and g['excluded_runs'] == 1
     assert g['summary']['accuracy'] == 0.5 and g['std']['summary']['accuracy'] is None
 
-@pytest.mark.parametrize('seeds', ['1;;2', '1;one', [], [True], [1.5], [1, 1], list(range(101))])
+@pytest.mark.parametrize('seeds', ['1,,2', '1,one', [], [True], [1.5], [1, 1], list(range(101))])
 def test_invalid_seed_lists(seeds):
     with pytest.raises(ValueError):
         parse_seeds(seeds)

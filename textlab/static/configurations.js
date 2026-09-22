@@ -4,9 +4,9 @@ let experimentVariants=[], editingVariant=null;
 const experimentFields=[
  ['Model and sampling',[
  ['temperature','Temperature','0','Sampling temperature. Multiple comma-separated values generate variants.'],
- ['top_p','Top-p','1','Nucleus sampling probability, greater than 0 and at most 1.'],
+ ['top_p','Top-p','1','Nucleus sampling probability, greater than 0 and at most 1. Comma-separated values (e.g. 0.8, 1) generate separate variants.'],
  ['thinking','Thinking','default','Server/model-specific thinking control. Select several comma-separated levels: default, off, on, minimal, low, medium, high, max.'],
- ['seeds','Seeds','9721','Semicolon-separated seeds create repeated runs of each configuration. Blank uses seed 9721.']]],
+ ['seeds','Seeds','9721','Comma-separated seeds create repeated runs of each configuration. Blank uses seed 9721.']]],
  ['Classification and context',[
  ['strategy','Classification strategy','joint','Joint: all categories in one decision. Binary: one category per request; only multi-label tasks support binary.','strategy'],
  ['use_context','Include document context',false,'Use the mapped context column before the target text. Context never contributes evidence spans.','boolean']]],
@@ -16,8 +16,8 @@ const experimentFields=[
  ['alternatives','Alternative interpretations',false,'Generate plausible candidate readings before selecting labels. Binary alternatives remain category-attributed.','boolean'],
  ['confidence','Self-reported confidence',false,'Uncalibrated estimate of decision correctness. Binary scores are retained per category, not combined into whole-set confidence.','boolean']]],
  ['Examples and batching',[
- ['examples_per_category','Few-shot examples per category','3','Maximum reference examples per category. Binary mode selects up to this many positive and negative examples.'],
- ['batch_size','Samples per LLM request','1','Up to 100 independent documents per request. Batch membership is recorded; batch size can affect results.']]],
+ ['examples_per_category','Few-shot examples per category','3','Comma-separated counts (e.g. 0, 3) generate separate variants. Maximum reference examples per category. Binary mode selects up to this many positive and negative examples.'],
+ ['batch_size','Samples per LLM request','1','Comma-separated batch sizes (e.g. 1, 5, 10) generate separate variants. Up to 100 independent documents per request. Batch membership is recorded; batch size can affect results.']]],
  ['Execution and validation',[
  ['concurrency','Concurrent requests','4','Maximum requests in flight within a job. Jobs execute sequentially.'],
  ['retries','Retries','3','Additional attempts per unresolved document/category decision after its initial request.'],
@@ -64,7 +64,7 @@ function configurationValues(){
   if(type==='boolean')values[key]=raw==='both'?[false,true]:[raw==='true'];
   else if(type==='strategy')values[key]=raw==='both'?['joint','binary']:[raw];
   else if(key==='default_label')values[key]=[raw||null];
-  else {values[key]=raw.split(',').map(x=>numericExperimentFields.has(key)?Number(x.trim()):x.trim());if(!raw||values[key].some(x=>x===''||typeof x==='number'&&!Number.isFinite(x)))throw Error('Invalid '+key);}
+  else {if(raw.split(',').some(x=>!x.trim()))throw Error('Empty value in '+key);values[key]=[...new Set(raw.split(',').map(x=>numericExperimentFields.has(key)?Number(x.trim()):x.trim()))];if(!raw||values[key].some(x=>x===''||typeof x==='number'&&!Number.isFinite(x)))throw Error('Invalid '+key);}
  }
  const bounds={temperature:[0,2],top_p:[Number.MIN_VALUE,1],examples_per_category:[0,100],batch_size:[1,100],concurrency:[1,128],retries:[0,10],max_tokens:[16,32768],max_text_chars:[1,1000000],max_context_chars:[1,1000000],max_batch_chars:[100,2000000]};
  for(const [key,[min,max]] of Object.entries(bounds))if(values[key].some(x=>x<min||x>max||!['temperature','top_p'].includes(key)&&!Number.isInteger(x)))throw Error(key+' must be '+(['temperature','top_p'].includes(key)?'a number':'an integer')+' between '+min+' and '+max+'.');
@@ -86,7 +86,7 @@ function generateConfigurations(){
  editingVariant=null;renderConfigurations();
 }
 function renderConfigurations(){
- $('#configurations-table').innerHTML=experimentVariants.length?`<div class="table-wrap"><table><thead><tr><th>Configuration</th><th>Response fields</th><th>Seeds</th><th>Actions</th></tr></thead><tbody>${experimentVariants.map((v,i)=>`<tr><td><input aria-label="Configuration name" data-config-name="${i}" value="${esc(v.name)}"><span class="muted">${esc(v.query.model)} · ${esc(v.query.strategy)} · batch ${v.query.batch_size} · context ${v.query.use_context?'on':'off'}</span></td><td>${['rationale','evidence','alternatives','confidence'].filter(k=>v.query[k]).join(', ')||'Labels only'}<details><summary>All settings</summary><pre>${esc(JSON.stringify(v.query,null,2))}</pre></details></td><td>${esc(v.seeds.join('; '))}</td><td><button type="button" data-action="config-edit" data-index="${i}">Edit</button><button type="button" data-action="config-duplicate" data-index="${i}">Duplicate</button><button type="button" data-action="config-remove" data-index="${i}">Remove</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No configurations yet. Generate configurations above.</p>';
+ $('#configurations-table').innerHTML=experimentVariants.length?`<div class="table-wrap"><table><thead><tr><th>Configuration</th><th>Response fields</th><th>Seeds</th><th>Actions</th></tr></thead><tbody>${experimentVariants.map((v,i)=>`<tr><td><input aria-label="Configuration name" data-config-name="${i}" value="${esc(v.name)}"><span class="muted">${esc(v.query.model)} · ${esc(v.query.strategy)} · batch ${v.query.batch_size} · context ${v.query.use_context?'on':'off'}</span></td><td>${['rationale','evidence','alternatives','confidence'].filter(k=>v.query[k]).join(', ')||'Labels only'}<details><summary>All settings</summary><pre>${esc(JSON.stringify(v.query,null,2))}</pre></details></td><td>${esc(v.seeds.join(', '))}</td><td><button type="button" data-action="config-edit" data-index="${i}">Edit</button><button type="button" data-action="config-duplicate" data-index="${i}">Duplicate</button><button type="button" data-action="config-remove" data-index="${i}">Remove</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No configurations yet. Generate configurations above.</p>';
  $('[name=preview_variant]').innerHTML=experimentVariants.map((v,i)=>option(i,v.name)).join('');updatePreviewTasks();queryEstimate();
 }
 function updatePreviewTasks(){
@@ -104,7 +104,7 @@ function queryEstimate(){
 }
 function editConfiguration(index){
  const v=experimentVariants[index];editingVariant=index;$('[name=config_profile]').value=v.profile_id;$('[name=config_models]').innerHTML='';$('[name=config_manual_models]').value=v.query.model;$('[name=config_name]').value='';
- for(const [,fields] of experimentFields)for(const [key,,value] of fields)$(`[name=config_${key}]`).value=key==='seeds'?v.seeds.join('; '):v.query[key]??value;
+ for(const [,fields] of experimentFields)for(const [key,,value] of fields)$(`[name=config_${key}]`).value=key==='seeds'?v.seeds.join(', '):v.query[key]??value;
  $('[name=config_extra_body]').value=JSON.stringify(v.query.extra_body||{},null,2);$('.experiment-builder').scrollIntoView({behavior:'smooth'});toast('Edit settings, then Generate configurations to replace this configuration.');
 }
 async function evaluationEditor(goldId,taskId){
