@@ -53,7 +53,7 @@ def save_gold(spec: GoldSet, edit_id=None):
         dataset = fetch(db,'datasets',spec.dataset_id)
         if dataset['status'] != 'ready' or dataset['total'] == 0:
             raise HTTPException(409,'Dataset must be fully imported and nonempty')
-        limit = int(os.environ.get('TEXTLAB_MAX_EVAL_ROWS','50000'))
+        limit = int(os.environ.get('CCA_LAB_MAX_EVAL_ROWS','50000'))
         if dataset['total'] > limit:
             raise HTTPException(422,f'Evaluation datasets are limited to {limit} rows')
         if not {spec.doc_id_column,spec.text_column,spec.gold_column}.issubset(json.loads(dataset['columns_json'])):
@@ -145,6 +145,7 @@ def evaluation_info(db, row, detail=False):
         run['name']=run.pop('variant_name')
         snapshot = json.loads(run.pop('snapshot'))
         run['model'] = snapshot['query']['model']
+        run['connection'] = {k:snapshot['profile'][k] for k in ('name','provider','base_url')}
         run['query'] = snapshot['query']
         if detail:
             run['snapshot'] = snapshot

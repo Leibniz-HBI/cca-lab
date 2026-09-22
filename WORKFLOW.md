@@ -1,4 +1,4 @@
-# Research workflow in TextLab 0.5
+# Research workflow in CCA-Lab 0.5
 
 The sidebar follows five steps. These are navigation aids, not locked stages: you can return to any step at any time.
 
@@ -36,4 +36,4 @@ Child jobs remain within their parent evaluation/prediction rather than appearin
 
 `POST /api/predictions` now accepts optional `source_evaluation_job_id`. With this field, `task_ids` must contain exactly the evaluated task ID, and the saved task/connection are loaded from that run. The required `profile_id` may be `"snapshot"` because the source run supplies the connection. The request's query, seeds, target dataset and text column control the new run. Without the source field, the previous API behavior is unchanged.
 
-Job list/detail responses expose parent `evaluation_id` and `prediction_id` for organizing results. Startup validates database schema 6 without migrating it. Stop both processes, replace/rebuild the application and restart using your existing data volume. Reload the browser to load the new frontend.
+Job list/detail responses expose parent `evaluation_id` and `prediction_id` for organizing results. Startup creates or validates the current database schema without migrations. Use the CCA-Lab configuration described in README.md; see UPGRADE.md for installation boundaries.

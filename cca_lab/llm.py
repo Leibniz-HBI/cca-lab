@@ -1,18 +1,13 @@
-import logging
 import json
 import os
-import re
-import time
 
 import httpx
 
-from .jobs import resolved_task
 from .thinking import thinking_body
 from .db import dumps
-from .models import Task, Query, Profile, validate_labels
+from .models import Profile, validate_labels
 
 
-PROMPT_PROTOCOL = "cca-reference-v2"
 
 
 def output_schema(task):
@@ -62,7 +57,7 @@ def selected_examples(task, query):
     return result
 
 
-def messages(task, query, text):
+def system_prompt(task):
     assignment = "exactly one category ID" if task.mode == "single" else "zero or more distinct category IDs (use [] when no category applies)"
     sections = [
         "# Classification task\n" + task.codebook["title"] + "\n" + task.codebook["description"]
@@ -74,12 +69,6 @@ def messages(task, query, text):
     sections.append("# Categories\nUse IDs as output labels, never display names or aliases. "
                     "Apply the authored criteria without inventing precedence or AND/OR rules.\n\n"
                     + "\n\n".join(category_description(c) for c in task.categories))
-    examples = selected_examples(task, query)
-    if examples:
-        # JSON preserves example text, context and annotation boundaries without
-        # fabricating model responses or promoting example text to instructions.
-        sections.append("# Reference examples\nSupplied coding annotations, not complete model responses.\n"
-                        + json.dumps(examples, ensure_ascii=False, indent=2))
     rules = ["# Response requirements", "Return one JSON object and no additional text.",
              "Emit only these fields, in order: " + " → ".join(output_schema(task)["properties"]) + "."]
     if task.evidence:
@@ -101,31 +90,32 @@ def messages(task, query, text):
         rules.append("self_reported_confidence: a number from 0 to 1 estimating the probability that the "
                      "complete label set agrees with an adjudicated coding decision. Account for material "
                      "uncertainty and missing context.")
-    if query.structured_output != "json_schema":
-        rules.append("Output JSON Schema:\n" + json.dumps(output_schema(task), ensure_ascii=False, indent=2))
     sections.append("\n".join(rules))
-    return [{"role": "system", "content": "\n\n".join(sections)},
-            {"role": "user", "content": dumps({"text": text})}]
+    return "\n\n".join(sections)
 
 
-def request_body(task, query, profile, text):
-    """Shared by execution and preview; excludes authentication headers."""
-    body = {"model": query.model, "messages": messages(task, query, text),
-            "stream": False, **thinking_body(profile, task.thinking, query.extra_body)}
+def messages(task, query, text):
+    """Preview through the same batch compiler used by execution."""
+    from .experiment import compile_request
+    return compile_request(task,query,Profile(name="Preview"),[{"id":"1","text":text}])[1]['messages']
+
+
+def request_body(query, profile, chat, schema):
+    """Provider envelope; prompt and schema are supplied by the sole compiler."""
+    body = {"model": query.model, "messages": chat,
+            "stream": False, **thinking_body(profile, query.thinking, query.extra_body)}
     if profile.provider == "ollama":
         opts = {"temperature": query.temperature, "top_p": query.top_p, "num_predict": query.max_tokens}
-        if query.seed is not None:
-            opts["seed"] = query.seed
+        if query.seed is not None: opts["seed"] = query.seed
         body["options"] = opts
         if query.structured_output != "none":
-            body["format"] = output_schema(task) if query.structured_output == "json_schema" else "json"
+            body["format"] = schema if query.structured_output == "json_schema" else "json"
         return "/api/chat", body
     body.update(temperature=query.temperature, top_p=query.top_p, max_tokens=query.max_tokens)
-    if query.seed is not None:
-        body["seed"] = query.seed
+    if query.seed is not None: body["seed"] = query.seed
     if query.structured_output == "json_schema":
         body["response_format"] = {"type": "json_schema", "json_schema": {
-            "name": "classification", "strict": True, "schema": output_schema(task)}}
+            "name": "classification", "strict": True, "schema": schema}}
     elif query.structured_output == "json_object":
         body["response_format"] = {"type": "json_object"}
     return "/chat/completions", body
@@ -224,83 +214,3 @@ def available_models(profile):
         body = response.json()
     return [x["name"] for x in body["models"]] if profile.provider == "ollama" else [x["id"] for x in body["data"]]
 
-
-def classify(snapshot, text, client):
-    task = Task.model_validate(snapshot["task"])
-    from .jobs import snapshot_query
-    query = snapshot_query(snapshot)
-    profile = Profile.model_validate(snapshot["profile"])
-    task = resolved_task(task, query)
-    started = time.monotonic()
-    result = dict(labels=[], rationale=None, status="failed", error=None, raw=None, attempts=0, seconds=0, prompt_tokens=0, completion_tokens=0, evidence=[], thinking=None, attempt_outputs=[])
-    if not isinstance(text, str) or not text.strip():
-        result["error"] = "Empty text"
-        return result
-    if len(text) > query.max_text_chars:
-        if query.overlong == "error":
-            result["error"] = "Text exceeds max_text_chars"
-            return result
-        text = text[:query.max_text_chars]
-    if snapshot.get("prompt_protocol", PROMPT_PROTOCOL) != PROMPT_PROTOCOL:
-        raise ValueError("Unsupported prompt protocol")
-    path, body = request_body(task, query, profile, text)
-    for attempt in range(query.retries + 1):
-        logging.getLogger(__name__).debug("llm_attempt task_id=%s attempt=%s max_attempts=%s", snapshot.get("task_id"), attempt+1, query.retries+1)
-        result["attempts"] += 1
-        output = {"prompt_protocol": PROMPT_PROTOCOL, "attempt": attempt + 1, "started_at": time.time(), "content": None, "thinking": None, "error": None}
-        result["attempt_outputs"].append(output)
-        try:
-            if profile.provider == "mock":
-                obj = mock_response(task, text, [task.categories[0].id],
-                    "Demo model: always the first category; no semantic classification.", confidence=0.5)
-                raw = dumps(obj)
-            else:
-                response = client.post(profile.base_url + path, json=body, headers=headers(profile), timeout=profile.timeout)
-                response.raise_for_status()
-                data = response.json()
-                if profile.provider == "ollama":
-                    msg = data["message"]
-                    raw = msg.get("content")
-                    output["thinking"] = msg.get("thinking")
-                    result["prompt_tokens"] += data.get("prompt_eval_count", 0) or 0
-                    result["completion_tokens"] += data.get("eval_count", 0) or 0
-                else:
-                    msg = data["choices"][0]["message"]
-                    raw = msg.get("content")
-                    output["thinking"] = msg.get("reasoning") or msg.get("reasoning_content") or msg.get("thinking")
-                    usage = data.get("usage") or {}
-                    result["prompt_tokens"] += usage.get("prompt_tokens", 0) or 0
-                    result["completion_tokens"] += usage.get("completion_tokens", 0) or 0
-            output["content"] = raw
-            # Only extract an explicit leading think block; never reinterpret JSON strings.
-            if isinstance(raw, str):
-                match = re.match(r"^\s*<think>(.*?)</think>\s*(.*)$", raw, re.DOTALL)
-                if match:
-                    output["inline_thinking"] = match.group(1)
-                    output["thinking"] = output["thinking"] or match.group(1)
-                    raw = match.group(2)
-            result["thinking"] = output["thinking"] if isinstance(output["thinking"], str) else (dumps(output["thinking"]) if output["thinking"] is not None else None)
-            result["raw"] = output["content"] if isinstance(output["content"], (str, type(None))) else dumps(output["content"])
-            parsed = parse_result(raw, task, text)
-            result.update(candidate_interpretations=parsed.get("candidate_interpretations", []), self_reported_confidence=parsed.get("self_reported_confidence"), alternative_interpretations=parsed.get("alternative_interpretations", []), labels=parsed["labels"], rationale=parsed.get("rationale"), evidence=parsed.get("evidence", []), status="ok", error=None)
-            break
-        except (ValueError, KeyError, IndexError, TypeError, httpx.HTTPError) as exc:
-            logging.getLogger(__name__).debug("llm_attempt_failed task_id=%s attempt=%s error_type=%s", snapshot.get("task_id"), attempt+1, type(exc).__name__)
-            # Never persist response bodies, credentials or full transport URLs in errors.
-            if isinstance(exc, httpx.HTTPStatusError):
-                code = exc.response.status_code
-                result["error"] = f"HTTP {code} from model endpoint"
-                if code not in (408, 429) and code < 500:
-                    output["error"] = result["error"]
-                    break
-            elif isinstance(exc, httpx.HTTPError):
-                result["error"] = type(exc).__name__ + " during API request"
-            else:
-                result["error"] = (type(exc).__name__ + ": " + str(exc))[:1000]
-            output["error"] = result["error"]
-            if attempt < query.retries:
-                time.sleep(min(2 ** attempt, 30))
-    if result['status'] == 'failed' and task.default_label is not None:
-        result.update(labels=[task.default_label], status='fallback', rationale=None, evidence=[])
-    result["seconds"] = round(time.monotonic() - started, 4)
-    return result

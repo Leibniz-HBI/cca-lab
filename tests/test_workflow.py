@@ -2,13 +2,13 @@ from task_fixtures import task_spec
 import json
 import pytest
 from fastapi.testclient import TestClient
-from textlab.api import app
-from textlab.worker import tick
+from cca_lab.api import app
+from cca_lab.worker import tick
 TASK = task_spec(**{'name': 'Instrument', 'instructions': 'Choose a class.', 'categories': [{'label': 'A', 'definition': 'Alpha'}, {'label': 'B', 'definition': 'Beta'}]})
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA', str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA', str(tmp_path))
     with TestClient(app) as c:
         yield c
 
@@ -31,7 +31,7 @@ def test_prediction_reuses_evaluated_snapshot_after_library_deletion(client):
     client.delete('/api/profiles/' + pid)
     target = client.post('/api/datasets', content=b'body\nNew corpus text\n').json()['id']
     tick()
-    request = {'name': 'Application', 'dataset_id': target, 'task_ids': [tid], 'profile_id': 'snapshot', 'text_column': 'body', 'query': old['query'], 'source_evaluation_job_id': jid}
+    request = {'name': 'Application', 'dataset_id': target, 'task_ids': [tid], 'text_column': 'body', 'source_evaluation_job_id': jid, 'variants': [{'name': 'Configuration', 'profile_id': 'snapshot', 'query': old['query']}]}
     response = client.post('/api/predictions', json=request)
     assert response.status_code == 201, response.text
     job = client.get('/api/jobs/' + response.json()['job_ids'][0]).json()
@@ -49,7 +49,7 @@ def test_prediction_reuses_evaluated_snapshot_after_library_deletion(client):
 
 def test_reuse_requires_completed_evaluation_and_matching_task(client):
     did, tid, pid, jid = prepare(client)
-    request = {'name': 'Apply', 'dataset_id': did, 'task_ids': [tid], 'profile_id': pid, 'text_column': 'text', 'query': {'model': 'm'}, 'source_evaluation_job_id': jid}
+    request = {'name': 'Apply', 'dataset_id': did, 'task_ids': [tid], 'text_column': 'text', 'source_evaluation_job_id': jid, 'variants': [{'name': 'Configuration', 'profile_id': pid, 'query': {'model': 'm'}}]}
     assert client.post('/api/predictions', json=request).status_code == 409
     for _ in range(10):
         tick()

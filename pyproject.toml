@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "textlab-classify"
+name = "cca-lab"
 dynamic = ["version"]
 description = "Persistent LLM text classification workbench"
 requires-python = ">=3.11"
@@ -13,13 +13,13 @@ dependencies = ["jsonschema[format]>=4.23,<5", "fastapi>=0.115,<1", "uvicorn>=0.
 test = ["pytest>=8,<10"]
 
 [tool.setuptools.package-data]
-textlab = ["static/*", "schemas/*.json", "schema.sql"]
+cca_lab = ["static/*", "schemas/*.json", "schema.sql"]
 
 [tool.setuptools.packages.find]
-include = ["textlab*"]
+include = ["cca_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.setuptools.dynamic]
-version = {attr = "textlab.__version__"}
+version = {attr = "cca_lab.__version__"}

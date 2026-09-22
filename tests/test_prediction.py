@@ -1,3 +1,4 @@
+from task_fixtures import runtime_task
 from task_fixtures import task_spec
 import csv
 import io
@@ -7,18 +8,17 @@ import httpx
 import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
-from textlab.api import app
-from textlab.db import connect, init, root
-from textlab.llm import classify
-from textlab.models import Profile
-from textlab.thinking import thinking_body
-from textlab.runtime import timed_batch, runtime_metrics
-from textlab.worker import tick
+from cca_lab.api import app
+from cca_lab.db import connect, init, root
+from cca_lab.models import Profile
+from cca_lab.thinking import thinking_body
+from cca_lab.runtime import timed_batch, runtime_metrics
+from cca_lab.worker import tick
 TASK = task_spec(**{'name': 'Topic', 'instructions': 'Classify the text.', 'categories': [{'label': 'A', 'definition': 'Alpha'}, {'label': 'B', 'definition': 'Beta'}]})
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA', str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA', str(tmp_path))
     with TestClient(app) as c:
         yield c
 
@@ -30,7 +30,7 @@ def setup(client):
     return (did, tasks, profile)
 
 def predict(client, did, tasks, profile):
-    response = client.post('/api/predictions', json={'name': 'Two tasks', 'dataset_id': did, 'task_ids': tasks, 'profile_id': profile, 'text_column': 'text', 'query': {'model': 'demo', 'concurrency': 2,'rationale':True,'evidence':True}})
+    response = client.post('/api/predictions', json={'name': 'Two tasks', 'dataset_id': did, 'task_ids': tasks, 'text_column': 'text', 'variants': [{'name': 'Configuration', 'profile_id': profile, 'query': {'model': 'demo', 'concurrency': 2, 'rationale': True, 'evidence': True}}]})
     assert response.status_code == 201, response.text
     return response.json()['id']
 
@@ -71,7 +71,7 @@ def test_multitask_durable_formats_and_snapshots(client):
     table = pq.read_table(io.BytesIO(client.get('/api/predictions/' + id + '/download/parquet').content))
     assert table.num_rows == 4 and table['source.doc_id'].to_pylist() == ['001', '002', '001', '002']
     manifest = client.get('/api/predictions/' + id + '/download/manifest').json()
-    assert len(manifest['runs']) == 2 and manifest['framework_version'] == '0.12.1'
+    assert len(manifest['runs']) == 2 and manifest['framework_version'] == '0.13.0'
     assert client.delete('/api/predictions/' + id).status_code == 200
     assert not folder.exists() and client.get('/api/jobs').json() == []
 
@@ -110,19 +110,6 @@ def test_delete_csv_preserves_records_and_dataset_cascade(client):
         assert client.get('/api/' + endpoint).json() == []
     assert not (root() / 'predictions' / pid).exists()
 
-@pytest.mark.parametrize('provider,adapter,level,expected', [('ollama', 'auto', 'off', {'think': False}), ('ollama', 'auto', 'high', {'think': 'high'}), ('openai', 'auto', 'off', {'reasoning_effort': 'none'}), ('openai', 'auto', 'low', {'reasoning_effort': 'low'}), ('openai', 'chat_template', 'off', {'chat_template_kwargs': {'enable_thinking': False}}), ('openai', 'chat_template', 'on', {'chat_template_kwargs': {'enable_thinking': True}})])
-def test_thinking_sent_to_provider(provider, adapter, level, expected):
-    calls = []
-
-    def handle(req):
-        calls.append(json.loads(req.content))
-        message = {'content': '{"labels":["A"]}', 'thinking': 'trace', 'reasoning_content': 'trace'}
-        return httpx.Response(200, json={'message': message} if provider == 'ollama' else {'choices': [{'message': message}]})
-    snapshot = {'task': task_spec(TASK, thinking=level), 'query': {'model': 'm', 'retries': 0}, 'profile': {'name': 'P', 'provider': provider, 'thinking_adapter': adapter, 'base_url': 'http://localhost'}}
-    with httpx.Client(transport=httpx.MockTransport(handle)) as http:
-        r = classify(snapshot, 'Alpha', http)
-    assert r['status'] == 'ok' and r['thinking'] == 'trace'
-    assert all((calls[0][k] == v for k, v in expected.items()))
 
 def test_thinking_conflicts_and_override():
     p = Profile(name='P', provider='openai', thinking_adapter='chat_template')
@@ -134,9 +121,9 @@ def test_thinking_conflicts_and_override():
     with pytest.raises(ValueError):
         thinking_body(p, 'off', {'reasoning_effort': 'high'})
     assert thinking_body(p, 'default', {}) == {}
-    from textlab.jobs import resolved_task
-    from textlab.models import Query, Task
-    assert resolved_task(Task(**task_spec(TASK, thinking='high')), Query(model='m', thinking='off')).thinking == 'off'
+    from cca_lab.jobs import resolved_task
+    from cca_lab.models import Query, Task
+    assert resolved_task(runtime_task(TASK, thinking='high'), Query(model='m', thinking='off')).thinking == 'off'
 
 def test_runtime_excludes_pause_and_marks_incomplete_timing_unknown(client, monkeypatch):
     did, tasks, profile = setup(client)
@@ -145,8 +132,8 @@ def test_runtime_excludes_pause_and_marks_incomplete_timing_unknown(client, monk
     with connect() as db:
         db.execute("UPDATE jobs SET status='running' WHERE id=?", (job['id'],))
     clock = {'wall': 1000.0, 'mono': 50.0}
-    monkeypatch.setattr('textlab.runtime.time.time', lambda: clock['wall'])
-    monkeypatch.setattr('textlab.runtime.time.monotonic', lambda: clock['mono'])
+    monkeypatch.setattr('cca_lab.runtime.time.time', lambda: clock['wall'])
+    monkeypatch.setattr('cca_lab.runtime.time.monotonic', lambda: clock['mono'])
 
     def batch(job):
         clock['wall'] += 2

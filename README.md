@@ -1,4 +1,4 @@
-# TextLab
+# CCA-Lab
 
 A Python workbench for reproducible LLM-based content analysis using CCA Schema codebooks.
 
@@ -7,10 +7,17 @@ A Python workbench for reproducible LLM-based content analysis using CCA Schema 
 - English navigation, forms, feedback, reports and charts. Existing user-authored tasks and texts retain their original language.
 - Delete LLM connections, original CSV files, datasets, gold registrations, evaluations and prediction batches. Dependency checks block deletion of active runs; cascade deletion requires confirmation.
 - Experiment configurations: vary models, sampling parameters, context, output fields, thinking, joint/binary classification and batch size. Defaults: 8192 output tokens, 3 retries, seed 9721. See [EXPERIMENTS.md](EXPERIMENTS.md).
+- Sort result tables by clicking column headers (click again to reverse). Numeric means sort numerically, unavailable values remain last, and sort choices survive table refreshes. Sorting also works in downloaded HTML reports.
 - Evaluation runtime comparison: active time, elapsed time, document throughput, successful document throughput, mean per-document latency and output-token throughput, alongside quality metrics.
 - **Prediction** workspace: select one dataset and multiple tasks. Each task produces an independent job. The worker saves combined CSV, JSON, JSONL, Parquet and manifest files on disk for repeated downloads.
 
-For fresh installation requirements, see [UPGRADE.md](UPGRADE.md). Evaluation details are in [EVALUATION.md](EVALUATION.md), and verification evidence is in [VALIDATION.md](VALIDATION.md).
+For installation and updating from 0.13.0, see [UPGRADE.md](UPGRADE.md). Evaluation details are in [EVALUATION.md](EVALUATION.md), and verification evidence is in [VALIDATION.md](VALIDATION.md).
+
+## Scheduling and evaluation details (0.13.1)
+
+Jobs on different server endpoints now execute concurrently (up to eight active endpoints). Jobs sharing the same URL scheme, hostname and port remain serialized, even across different connection profiles or API paths. Each job retains its configured request concurrency. Host aliases pointing at the same physical server cannot be detected automatically; reuse one hostname if they should share capacity. Imports and report/export generation still occupy the coordinator between request windows.
+
+Evaluation details show the model and connection from each immutable job snapshot. Delayed detail/report responses cannot overwrite another dialog session. Switching connections immediately clears the available-model selection; choose models explicitly after loading. Existing generated configurations retain their original connection and are identified in the review table.
 
 ## Start with Docker
 
@@ -35,19 +42,19 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.lock
 pip install --no-deps -e .
-export TEXTLAB_DATA="$PWD/data"
-python -m uvicorn textlab.api:app --host 127.0.0.1 --port 8080
+export CCA_LAB_DATA="$PWD/data"
+python -m uvicorn cca_lab.api:app --host 127.0.0.1 --port 8080
 ```
 
 In a second terminal, in the same project directory:
 
 ```bash
 source .venv/bin/activate
-export TEXTLAB_DATA="$PWD/data"
-python -m textlab.worker
+export CCA_LAB_DATA="$PWD/data"
+python -m cca_lab.worker
 ```
 
-Both processes must share `TEXTLAB_DATA` and API-key environment variables. Compose loads `.env`; direct Python execution requires explicitly exported variables. Worker locking uses `fcntl`, so use Docker or WSL2 on Windows.
+Both processes must share `CCA_LAB_DATA` and API-key environment variables. Compose loads `.env`; direct Python execution requires explicitly exported variables. Worker locking uses `fcntl`, so use Docker or WSL2 on Windows.
 
 ## First prediction
 
@@ -89,15 +96,15 @@ When evidence and rationale are enabled (candidate comparison and confidence dis
 
 Unknown or duplicate labels, invalid cardinality, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with any known codebook label, including competing categories. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
 
-Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Native TextLab task JSON can be imported through `POST /api/tasks`. The file-import UI accepts standard CCA codebook JSON.
+Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Native CCA-Lab task JSON can be imported through `POST /api/tasks`. The file-import UI accepts standard CCA codebook JSON.
 
 ## Prediction storage and download formats
 
 The worker streams results in batches of 500 into:
 
 ```text
-TEXTLAB_DATA/
-  textlab.sqlite
+CCA_LAB_DATA/
+  cca_lab.sqlite
   <dataset_id>.csv
   predictions/<prediction_id>/
     results.csv
@@ -108,7 +115,7 @@ TEXTLAB_DATA/
     requests.jsonl
 ```
 
-Files become downloadable after every task run has completed or cancellation has finished and all exports have been generated. An interrupted export is rebuilt after worker restart; failed exports have a **Retry exports** control. Files remain on disk until the batch or parent dataset is deleted. Generating all formats uses additional disk space and occupies the single worker until finished.
+Files become downloadable after every task run has completed or cancellation has finished and all exports have been generated. An interrupted export is rebuilt after worker restart; failed exports have a **Retry exports** control. Files remain on disk until the batch or parent dataset is deleted. Generating all formats uses additional disk space and occupies the coordinator until finished; already dispatched request windows on other servers can finish meanwhile.
 
 Each export contains **one row per input record, task, configuration and seed run**, including failed and unprocessed rows. `job_id`, `task_id`, task name and `row_no` identify the result. Original columns, labels, rationale, evidence, component decisions, attempt references and errors are retained. Exact requests, raw responses, returned thinking and token usage are stored once per request in requests.jsonl. Document token fields are zero because shared tokens are not attributed to individual documents; allocated document duration is an equal share of request time, not isolated latency.
 
@@ -139,13 +146,13 @@ Active, queued or paused dependent jobs must finish or be cancelled and drained 
 
 A single coordinator processes jobs FIFO, with 1–128 request threads per job. A prediction crosses tasks, configurations and seeds. Nominal requests per run are ceil(documents / batch_size), multiplied by category count in binary mode. Character-based splits and retries can increase this count. More threads do not guarantee higher model throughput.
 
-Active time sums timed worker batches, including API calls, retries and processing overhead. It excludes queue time, pauses, imports and other work between batches. Elapsed time runs from first start to finish and includes pauses. Mean per-document latency includes retries and overlaps across threads; it is not the reciprocal of job throughput. Legacy timing and timing interrupted by an unclean worker shutdown are reported as unknown. Runtime includes model loading and cache effects; use equivalent concurrency, inputs, budgets and warm-up conditions for comparisons.
+Active time sums timed worker batches, including API calls, retries and processing overhead. It excludes queue time, pauses, imports and other work between batches. Elapsed time runs from first start to finish and includes pauses. Mean per-document latency includes retries and overlaps across threads; it is not the reciprocal of job throughput. Timing interrupted by an unclean worker shutdown are reported as unknown. Runtime includes model loading and cache effects; use equivalent concurrency, inputs, budgets and warm-up conditions for comparisons.
 
 Pause/cancel stops new submissions and waits for in-flight requests; unresolved retries resume later. A crash may repeat an API call whose result was not committed; persisted results are unique per job/input row. The default `retries=3` permits four total attempts. Transient transport failures, invalid output and HTTP 408/429/5xx retry; other 4xx fail immediately. Empty or overlong texts fail without querying unless explicit truncation is selected.
 
 ## Large datasets and operational limits
 
-Uploads stream to disk; imports and prediction exports use bounded batches. Default upload limit is 1 GiB (`TEXTLAB_MAX_UPLOAD_BYTES`). CSV needs a header with unique nonempty column names, consistent column counts and fields no larger than 10 MiB. UTF-8/BOM, UTF-8, CP1252 and Latin-1 are supported. Uploads are not resumable. Interrupted imports restart from the beginning.
+Uploads stream to disk; imports and prediction exports use bounded batches. Default upload limit is 1 GiB (`CCA_LAB_MAX_UPLOAD_BYTES`). CSV needs a header with unique nonempty column names, consistent column counts and fields no larger than 10 MiB. UTF-8/BOM, UTF-8, CP1252 and Latin-1 are supported. Uploads are not resumable. Interrupted imports restart from the beginning.
 
 A 500 MB input needs more than 500 MB storage: original CSV, database records, results, WAL and every prediction export are additional. Multiple tasks, rationale and thinking can increase storage substantially. RAM use is bounded by batch and output sizes rather than total input rows. Evaluation gold datasets have a separate default 50,000-row limit and at most 50 model configurations.
 

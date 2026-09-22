@@ -1,4 +1,4 @@
-"""Real HTTP upload smoke benchmark against a separately running local TextLab.
+"""Real HTTP upload smoke benchmark against a separately running local CCA-Lab.
 Leaves the imported dataset on that server. Use an empty test instance only.
 Usage: python tests/benchmark_upload.py http://127.0.0.1:8080
 """

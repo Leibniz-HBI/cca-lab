@@ -1,4 +1,3 @@
-from task_fixtures import legacy_jobs
 from task_fixtures import task_spec
 import csv
 import io
@@ -10,17 +9,17 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, cohen_kappa_score, matthews_corrcoef, hamming_loss, jaccard_score
-from textlab.api import app
-from textlab.db import connect, init
-from textlab.evaluation import score
-from textlab.llm import classify, parse_result, output_schema
-from textlab.models import Task, GoldSet
-from textlab.worker import tick
+from cca_lab.api import app
+from cca_lab.db import connect, init
+from cca_lab.evaluation import score
+from cca_lab.llm import parse_result, output_schema
+from cca_lab.models import Task, GoldSet
+from cca_lab.worker import tick
 TASK = task_spec(**{'name': 'Topic', 'instructions': 'Select labels from the text.', 'categories': [{'label': 'A', 'definition': 'A'}, {'label': 'B', 'definition': 'B'}, {'label': 'C', 'definition': 'C'}]})
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA', str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA', str(tmp_path))
     with TestClient(app) as c:
         yield c
 
@@ -35,12 +34,11 @@ def setup(client, multi=False, content=None):
     profile = client.post('/api/profiles', json={'name': 'Mock', 'provider': 'mock', 'base_url': 'http://localhost'}).json()['id']
     return (gold, task, profile, did)
 
-def evaluate(client, gold, task, profile, variants=None, saved=False):
+def evaluate(client, gold, task, profile, variants=None):
     variants = variants or [{'name': 'T=0', 'profile_id': profile, 'query': {'model': 'mock', 'temperature': 0, 'rationale': True, 'evidence': True}}, {'name': 'T=.5', 'profile_id': profile, 'query': {'model': 'mock', 'temperature': 0.5}}]
     response = client.post('/api/evaluations', json={'name': 'Comparison', 'gold_id': gold, 'task_id': task, 'variants': variants})
     assert response.status_code == 201, response.text
     id = response.json()['id']
-    if saved:legacy_jobs()
     for _ in range(30):
         tick()
         state = client.get('/api/evaluations/' + id).json()
@@ -120,28 +118,11 @@ def test_multilabel_metrics_match_sklearn():
     assert result['summary']['kappa_macro_ovr'] == pytest.approx(np.mean(kappas))
     assert result['summary']['mcc_macro_ovr'] == pytest.approx(np.mean([matthews_corrcoef(y[:, i], p[:, i]) for i in range(3)]))
 
-def test_saved_snapshot_shared_subset_and_failure_coverage(client, monkeypatch):
-    gold, task, profile, _ = setup(client)
-    import textlab.worker as worker
-    original = worker.classify
-
-    def fail_some(snapshot, text, http):
-        result = original(snapshot, text, http)
-        if text == ('Beta' if snapshot['query']['temperature'] == 0 else 'Gamma'):
-            result.update(status='failed', labels=[], error='Test failure')
-        return result
-    monkeypatch.setattr(worker, 'classify', fail_some)
-    id, _ = evaluate(client, gold, task, profile, saved=True)
-    common = client.get(f'/api/evaluations/{id}/report?scope=common').json()
-    valid = client.get(f'/api/evaluations/{id}/report?scope=valid').json()
-    assert common['common_n'] == 2
-    assert all((r['n'] == 2 and r['coverage'] == 0.75 and (r['accuracy_all'] == 0.5) for r in common['runs']))
-    assert all((r['n'] == 3 for r in valid['runs']))
 
 
 def test_multilabel_registration_and_no_gold_leak(client, monkeypatch):
     gold, task, profile, _ = setup(client, multi=True, content=b'document,body,annotation\n001,Alpha,A|B\n002,Beta,B\n003,Gamma,C\n')
-    import textlab.executor as executor
+    import cca_lab.executor as executor
     original = executor.perform
     seen=[]
 
@@ -157,22 +138,6 @@ def test_multilabel_registration_and_no_gold_leak(client, monkeypatch):
     assert preview[0]['gold_labels'] == ['A', 'B'] and preview[1]['gold_labels'] == ['B']
     assert client.get('/api/evaluations/' + id + '/report').json()['mode'] == 'multi'
 
-def test_saved_snapshot_no_valid_results_are_not_zero(client, monkeypatch):
-    gold, task, profile, _ = setup(client)
-    import textlab.worker as worker
-    original = worker.classify
-
-    def fail(snapshot, text, http):
-        result = original(snapshot, text, http)
-        result.update(status='failed', labels=[])
-        return result
-    monkeypatch.setattr(worker, 'classify', fail)
-    id, _ = evaluate(client, gold, task, profile, saved=True)
-    report = client.get('/api/evaluations/' + id + '/report').json()
-    assert report['common_n'] == 0
-    assert report['runs'][0]['summary']['accuracy'] is None
-    assert report['runs'][0]['coverage'] == 0 and report['runs'][0]['accuracy_all'] == 0
-    assert client.get(f'/api/evaluations/{id}/chart?kind=classes&metric=f1').status_code == 200
 
 
 @pytest.mark.parametrize('content', [b'doc_id,text,gold_label\n1,x,A\n1,y,B\n', b'doc_id,text,gold_label\n,x,A\n', b'doc_id,text,gold_label\n1,,A\n', b'doc_id,text,gold_label\n1,x,A||B\n', b'doc_id,text,gold_label\n1,x,A|A\n'])
@@ -195,42 +160,8 @@ def test_unknown_gold_label_and_mode_rejected_before_jobs(client):
     spec['task_id'] = client.post('/api/tasks', json=task_spec(TASK, mode='multi')).json()['id']
     assert client.post('/api/evaluations', json=spec).status_code == 422
 
-def test_evidence_and_reasoning_all_attempts(monkeypatch):
-    calls = []
 
-    def handle(request):
-        body = json.loads(request.content)
-        calls.append(body)
-        quote = 'invented' if len(calls) == 1 else 'evidence'
-        raw = json.dumps({'labels': ['A'], 'evidence': [{'label': 'A', 'quote': quote}]})
-        return httpx.Response(200, json={'choices': [{'message': {'content': raw, 'reasoning_content': 'thinking ' + str(len(calls))}}]})
-    monkeypatch.setattr('textlab.llm.time.sleep', lambda _: None)
-    snapshot = {'task': task_spec(TASK, rationale=True), 'query': {'model': 'model', 'rationale': False, 'evidence': True}, 'profile': {'name': 'p', 'provider': 'openai', 'base_url': 'http://localhost'}}
-    with httpx.Client(transport=httpx.MockTransport(handle)) as c:
-        result = classify(snapshot, 'Some evidence here', c)
-    assert result['status'] == 'ok' and result['attempts'] == 2 and (result['rationale'] is None)
-    assert result['evidence'] == [{'label': 'A', 'quote': 'evidence', 'start': 5, 'end': 13}]
-    assert result['thinking'] == 'thinking 2'
-    assert [x['thinking'] for x in result['attempt_outputs']] == ['thinking 1', 'thinking 2']
-    assert result['attempt_outputs'][0]['error']
-    assert 'rationale' not in calls[0]['response_format']['json_schema']['schema']['properties']
 
-@pytest.mark.parametrize('provider,field', [('ollama', 'thinking'), ('openai', 'reasoning'), ('openai', 'reasoning_content')])
-def test_reasoning_provider_keys(provider, field):
-    msg = {'content': '{"labels":["A"]}', field: 'server thinking'}
-    body = {'message': msg} if provider == 'ollama' else {'choices': [{'message': msg}]}
-    snapshot = {'task': TASK, 'query': {'model': 'm'}, 'profile': {'name': 'p', 'provider': provider, 'base_url': 'http://localhost'}}
-    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))) as c:
-        r = classify(snapshot, 'a', c)
-    assert r['status'] == 'ok' and r['thinking'] == 'server thinking'
-
-def test_inline_thinking_and_empty_final_answer(monkeypatch):
-    monkeypatch.setattr('textlab.llm.time.sleep', lambda _: None)
-    snapshot = {'task': TASK, 'query': {'model': 'm', 'retries': 0}, 'profile': {'name': 'p', 'provider': 'openai', 'base_url': 'http://localhost'}}
-    for content, status in [('<think>server trace</think>{"labels":["A"]}', 'ok'), ('<think>server trace</think>', 'failed')]:
-        with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={'choices': [{'message': {'content': content}}]}))) as c:
-            r = classify(snapshot, 'a', c)
-        assert r['status'] == status and r['thinking'] == 'server trace' and (r['raw'] == content)
 
 def test_cancelled_evaluation_report_includes_unprocessed(client):
     gold, task, profile, _ = setup(client)

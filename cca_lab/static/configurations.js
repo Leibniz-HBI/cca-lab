@@ -19,7 +19,7 @@ const experimentFields=[
  ['examples_per_category','Few-shot examples per category','3','Comma-separated counts (e.g. 0, 3) generate separate variants. Maximum reference examples per category. Binary mode selects up to this many positive and negative examples.'],
  ['batch_size','Samples per LLM request','1','Comma-separated batch sizes (e.g. 1, 5, 10) generate separate variants. Up to 100 independent documents per request. Batch membership is recorded; batch size can affect results.']]],
  ['Execution and validation',[
- ['concurrency','Concurrent requests','4','Maximum requests in flight within a job. Jobs execute sequentially.'],
+ ['concurrency','Concurrent requests','4','Maximum requests in flight within a job. Jobs on separate servers can run simultaneously; jobs sharing a server are queued.'],
  ['retries','Retries','3','Additional attempts per unresolved document/category decision after its initial request.'],
  ['max_tokens','Maximum output tokens','8192','Output budget for the entire request, including all batched results; thinking may consume this budget depending on the server.'],
  ['structured_output','Structured output','json_schema','json_schema uses native constraints; json_object requests JSON; none uses prompt instructions plus local validation.'],
@@ -41,9 +41,18 @@ function experimentField([key,label,value,help,type]){
 function configurationBuilder(){
  return `<section class="experiment-builder"><div class="section-title"><h3>Experiment configurations</h3><span class="small">Generate, review, then start</span></div><p class="small">Compare settings using “Compare both” or comma-separated values. Seeds repeat each configuration. All combinations are generated explicitly below.</p><div class="grid"><label>Connection ${infoIcon('Select the API connection for configurations generated from these settings.')}<select name="config_profile">${state.profiles.map(p=>option(p.id,p.spec.name)).join('')}</select></label><label>Available models ${infoIcon('Select one or more models. Each selected model creates configurations.')}<select name="config_models" multiple size="3"></select></label><label>Manual model IDs ${infoIcon('Comma-separated model IDs, in addition to selected models.')}<input name="config_manual_models"></label></div><p id="config-model-hint" class="small"></p><label>Configuration name prefix ${infoIcon('Optional descriptive prefix for generated configuration names.')}<input name="config_name"></label>${experimentFields.map(([title,fields],i)=>`<details class="config-section" ${i<3?'open':''}><summary>${title}</summary><div class="grid">${fields.map(experimentField).join('')}</div></details>`).join('')}<details class="config-section"><summary>Provider-specific parameters</summary><label>Additional API parameters ${infoIcon('JSON object sent to the provider. Controlled fields cannot be overridden. Thinking options depend on the server.')}<textarea name="config_extra_body">{}</textarea></label></details><div class="actions spaced"><button type="button" data-action="config-generate">Generate configurations</button><button type="button" data-action="config-clear">Clear configurations</button></div><div id="configurations-table"></div><div id="query-estimate" class="notice" aria-live="polite"></div><details class="config-section"><summary>Prompt preview</summary><div class="grid"><label>Configuration ${infoIcon('Preview the exact effective settings of a generated configuration.')}<select name="preview_variant"></select></label><label>Task ${infoIcon('Select the task to preview when predicting with multiple tasks.')}<select name="preview_task"></select></label><label>Binary category ${infoIcon('Only this category definition is included in binary mode. Ignored for joint mode.')}<select name="preview_category"></select></label><label>Rows after ${infoIcon('Read dataset rows after this row number, starting with 0 for the first batch.')}<input name="preview_after" type="number" min="0" value="0"></label></div><button type="button" data-action="config-preview">Generate preview</button><pre id="configuration-preview" hidden></pre></details></section>`;
 }
+let modelListRequest=0;
 async function configModels(){
- const id=$('[name=config_profile]').value;
- try{const response=await api('/profiles/'+id+'/models');if(!$('[name=config_models]')||$('[name=config_profile]').value!==id)return;$('[name=config_models]').innerHTML=response.models.map((m,i)=>option(m,m,i===0?m:null)).join('');$('#config-model-hint').textContent=response.models.length+' models available.';}catch(e){$('#config-model-hint').textContent=e.message+' Enter model IDs manually.';}
+ const select=$('[name=config_models]'),profile=$('[name=config_profile]'),hint=$('#config-model-hint');
+ const id=profile.value,request=++modelListRequest;
+ select.innerHTML='';select.disabled=true;hint.textContent='Loading models…';
+ const current=()=>request===modelListRequest&&$('[name=config_models]')===select&&profile.value===id;
+ try{
+  const response=await api('/profiles/'+id+'/models');if(!current())return;
+  select.innerHTML=response.models.map(m=>option(m,m)).join('');
+  hint.textContent=response.models.length+' models available. Select the model(s) to use.';
+ }catch(e){if(current())hint.textContent=e.message+' Enter model IDs manually.';}
+ finally{if(current())select.disabled=false;}
 }
 function selectedExperimentTasks(){
  if(edit.kind==='evaluation')return state.tasks.filter(t=>t.id===$('[name=task_id]').value);
@@ -74,6 +83,7 @@ function configurationValues(){
 function generateConfigurations(){
  const values=configurationValues(),seeds=values.seeds;delete values.seeds;
  const models=[...new Set([...$('[name=config_models]').selectedOptions].map(o=>o.value).concat($('[name=config_manual_models]').value.split(',').map(v=>v.trim()).filter(Boolean)))];
+ if($('[name=config_models]').disabled)throw Error('Wait for the selected connection’s models to load.');
  if(!models.length)throw Error('Select or enter a model.');
  let queries=models.map(model=>({model}));
  for(const [key,options] of Object.entries(values)){if(queries.length*options.length>50)throw Error('Maximum 50 configurations. Reduce the selected variations.');queries=queries.flatMap(q=>options.map(v=>({...q,[key]:v})));}
@@ -86,7 +96,7 @@ function generateConfigurations(){
  editingVariant=null;renderConfigurations();
 }
 function renderConfigurations(){
- $('#configurations-table').innerHTML=experimentVariants.length?`<div class="table-wrap"><table><thead><tr><th>Configuration</th><th>Response fields</th><th>Seeds</th><th>Actions</th></tr></thead><tbody>${experimentVariants.map((v,i)=>`<tr><td><input aria-label="Configuration name" data-config-name="${i}" value="${esc(v.name)}"><span class="muted">${esc(v.query.model)} · ${esc(v.query.strategy)} · batch ${v.query.batch_size} · context ${v.query.use_context?'on':'off'}</span></td><td>${['rationale','evidence','alternatives','confidence'].filter(k=>v.query[k]).join(', ')||'Labels only'}<details><summary>All settings</summary><pre>${esc(JSON.stringify(v.query,null,2))}</pre></details></td><td>${esc(v.seeds.join(', '))}</td><td><button type="button" data-action="config-edit" data-index="${i}">Edit</button><button type="button" data-action="config-duplicate" data-index="${i}">Duplicate</button><button type="button" data-action="config-remove" data-index="${i}">Remove</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No configurations yet. Generate configurations above.</p>';
+ $('#configurations-table').innerHTML=experimentVariants.length?`<div class="table-wrap"><table><thead><tr><th>Configuration</th><th>Response fields</th><th>Seeds</th><th>Actions</th></tr></thead><tbody>${experimentVariants.map((v,i)=>`<tr><td><input aria-label="Configuration name" data-config-name="${i}" value="${esc(v.name)}"><span class="muted">${esc(state.profiles.find(p=>p.id===v.profile_id)?.spec.name||'Saved connection')} · ${esc(v.query.model)} · ${esc(v.query.strategy)} · batch ${v.query.batch_size} · context ${v.query.use_context?'on':'off'}</span></td><td>${['rationale','evidence','alternatives','confidence'].filter(k=>v.query[k]).join(', ')||'Labels only'}<details><summary>All settings</summary><pre>${esc(JSON.stringify(v.query,null,2))}</pre></details></td><td>${esc(v.seeds.join(', '))}</td><td><button type="button" data-action="config-edit" data-index="${i}">Edit</button><button type="button" data-action="config-duplicate" data-index="${i}">Duplicate</button><button type="button" data-action="config-remove" data-index="${i}">Remove</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No configurations yet. Generate configurations above.</p>';
  $('[name=preview_variant]').innerHTML=experimentVariants.map((v,i)=>option(i,v.name)).join('');updatePreviewTasks();queryEstimate();
 }
 function updatePreviewTasks(){
@@ -156,11 +166,14 @@ document.addEventListener('click',async e=>{const el=e.target.closest('[data-act
  if(a==='config-preview')await previewConfiguration();
  }catch(error){$('#form-error').textContent=error.message;}});
 document.addEventListener('input',e=>{if(e.target.dataset.configName!==undefined)experimentVariants[Number(e.target.dataset.configName)].name=e.target.value;});
-document.addEventListener('change',async e=>{try{if(e.target.name==='config_profile')await configModels();if(['task_id','task_ids','gold_id'].includes(e.target.name)){updatePreviewTasks();queryEstimate();}if(e.target.name==='preview_task')updatePreviewCategories();}catch(error){$('#form-error').textContent=error.message;}});
+document.addEventListener('change',async e=>{try{if(e.target.name==='config_profile'){$('[name=config_manual_models]').value='';await configModels();}if(['task_id','task_ids','gold_id'].includes(e.target.name)){updatePreviewTasks();queryEstimate();}if(e.target.name==='preview_task')updatePreviewCategories();}catch(error){$('#form-error').textContent=error.message;}});
 
 let requestLogOffset=0;
 document.addEventListener('click',async e=>{const el=e.target.closest('[data-action]');if(!el||!['request-log','request-next'].includes(el.dataset.action))return;try{
  if(el.dataset.action==='request-log')requestLogOffset=0;
- const rows=await api('/jobs/'+el.dataset.id+'/requests?after='+requestLogOffset+'&limit=20');requestLogOffset+=rows.length;
+ const session=detailSession,id=el.dataset.id,offset=requestLogOffset;
+ const rows=await api('/jobs/'+id+'/requests?after='+offset+'&limit=20');
+ if(!currentDetail(session)||selectedJob!==id||requestLogOffset!==offset)return;
+ requestLogOffset+=rows.length;
  $('#request-log').innerHTML=`<h3>LLM request log</h3><p class="small">Exact token usage and returned thinking are recorded once per request. Component results link here by request ID. Per-document duration is an equal allocation of request duration, not isolated latency.</p><a class="button" href="/api/jobs/${el.dataset.id}/requests.jsonl">Download requests JSONL ↓</a>${rows.map(r=>`<details><summary>${esc(r.id)} · ${esc(r.category||'joint')} · ${r.inputs.length} samples · ${esc(r.status)}</summary><pre>${esc(JSON.stringify(r,null,2))}</pre></details>`).join('')}<button type="button" data-action="request-next" data-id="${el.dataset.id}">Next 20</button>`;
  }catch(error){toast(error.message);}});

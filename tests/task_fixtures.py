@@ -9,8 +9,7 @@ def task_spec(base=None, **options):
         "codebook": {"$schema": SCHEMA, "id": "test-instrument", "version": "1.0.0",
                      "title": "Test instrument", "description": "Test construct",
                      "task": {"instructions": "Apply categories.", "unit_of_analysis": "document",
-                              "classification_mode": "single_label", "categories": []}},
-        "execution_defaults": {}}
+                              "classification_mode": "single_label", "categories": []}}}
     codebook = result["codebook"]
     for key, value in options.items():
         if key == "name":
@@ -31,18 +30,12 @@ def task_spec(base=None, **options):
                 if examples:
                     codebook.setdefault("examples", []).extend({"text": text, "labels": [c["id"]]} for text in examples)
         else:
-            result["execution_defaults"][key] = value
+            pass  # Execution choices belong to queries, not task payloads.
     return result
 
 
-def legacy_jobs(**defaults):
-    """Exercise resume of immediately preceding single-request snapshots."""
-    import json
-    from textlab.db import connect,dumps
-    with connect() as db:
-        for row in db.execute('SELECT id,snapshot FROM jobs').fetchall():
-            snapshot=json.loads(row['snapshot'])
-            snapshot['prompt_protocol']='cca-reference-v2'
-            snapshot['query']['prompt_protocol']='cca-reference-v2'
-            snapshot['query'].update(defaults)
-            db.execute('UPDATE jobs SET snapshot=? WHERE id=?',(dumps(snapshot),row['id']))
+
+def runtime_task(base=None, **options):
+    from cca_lab.models import Task, Query, ExecutionOptions
+    from cca_lab.jobs import resolved_task
+    return resolved_task(Task(**task_spec(base,**options)), Query(model='test',**{k:v for k,v in options.items() if k in ExecutionOptions.model_fields}))

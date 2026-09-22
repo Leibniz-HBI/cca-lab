@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def root():
-    path = Path(os.environ.get("TEXTLAB_DATA", "data")).resolve()
+    path = Path(os.environ.get("CCA_LAB_DATA", "data")).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -23,7 +23,7 @@ def dumps(value):
 
 @contextmanager
 def connect():
-    db = sqlite3.connect(root() / "textlab.sqlite", timeout=30)
+    db = sqlite3.connect(root() / "cca_lab.sqlite", timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=30000")
@@ -62,29 +62,11 @@ def init():
                     db.execute(statement)
             db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         else:
-            if version == 6:
-                # Only the immediately preceding, verified current schema is upgraded.
-                addition = SCHEMA[SCHEMA.index('CREATE TABLE llm_requests'):]
-                base = SCHEMA[:SCHEMA.index('CREATE TABLE llm_requests')]
-                with sqlite3.connect(':memory:') as previous:
-                    previous.executescript(base)
-                    if schema_signature(db) != schema_signature(previous):
-                        raise RuntimeError('Unsupported TextLab database schema')
-                for statement in addition.split(';'):
-                    if statement.strip(): db.execute(statement)
-                # Library tasks now contain only codebooks. Historical snapshots stay intact.
-                for row in db.execute('SELECT id,spec FROM tasks').fetchall():
-                    spec = json.loads(row['spec'])
-                    if 'execution_defaults' in spec:
-                        spec.pop('execution_defaults')
-                        db.execute('UPDATE tasks SET spec=? WHERE id=?', (dumps(spec),row['id']))
-                db.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
-                version = SCHEMA_VERSION
             with sqlite3.connect(":memory:") as expected:
                 expected.executescript(SCHEMA)
                 valid = version == SCHEMA_VERSION and schema_signature(db) == schema_signature(expected)
             if not valid:
-                raise RuntimeError("Unsupported TextLab database schema; startup stopped without changing application data. Use a current database or an empty data directory.")
+                raise RuntimeError("Unsupported CCA-Lab database schema; startup stopped without changing application data. Use a current database or an empty data directory.")
         db.commit()
         db.execute("PRAGMA journal_mode=WAL")
 

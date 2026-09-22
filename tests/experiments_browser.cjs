@@ -1,9 +1,9 @@
 (async()=>{
- const fs=require('fs'),base=process.env.TEXTLAB_SCREENSHOT_DIR||'/tmp';
+ const fs=require('fs'),base=process.env.CCA_LAB_SCREENSHOT_DIR||'/tmp';
  const browser=await require('playwright').chromium.launch({headless:true});
  const page=await browser.newPage({viewport:{width:1440,height:1100}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=500)errors.push(r.status()+' '+r.url())});
- const url=process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099';
+ const url=process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099';
  const post=async(path,data)=>{const r=await page.request.post(url+'/api'+path,{data});if(!r.ok())throw Error(await r.text());return r.json();};
  const poll=async fn=>{for(let i=0;i<250;i++){if(await fn())return;await new Promise(r=>setTimeout(r,200));}throw Error('Timed out');};
  const dataset=await page.request.post(url+'/api/datasets?filename=gold.csv',{data:'doc_id,text,gold_label,context\n1,Alpha,A,Prior\n2,Beta,B,Parent\n3,Neither,,Background\n'}).then(r=>r.json());
@@ -16,10 +16,10 @@
  await page.locator('[data-action=edit-task]').click();
  if(await page.locator('[name=rationale]').count())throw Error('Task execution settings remain');
  await page.locator('[data-action=close]').first().click();
- await page.evaluate(()=>location.hash='evaluations');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');
+ await page.evaluate(()=>location.hash='evaluations');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');await page.locator('[name=config_models]').selectOption({index:0});
  for(const [key,value] of [['max_tokens','8192'],['retries','3'],['seeds','9721']])if(await page.locator('[name=config_'+key+']').inputValue()!==value)throw Error('Wrong default '+key);
  await page.locator('[name=config_strategy]').selectOption('both');await page.locator('[name=config_use_context]').selectOption('both');await page.locator('[name=config_evidence]').selectOption('both');
- await page.locator('[name=config_seeds]').fill('9721,9722');
+ await page.locator('[name=config_seeds]').fill('9721,9722');await page.locator('[name=config_confidence]').selectOption('true');
  await page.locator('summary',{hasText:'Examples and batching'}).click();await page.locator('[name=config_batch_size]').fill('2');
  await page.locator('[data-action=config-generate]').click();
  if(await page.locator('#configurations-table tbody tr').count()!==8)throw Error('Wrong variation count');
@@ -31,16 +31,30 @@
  await poll(async()=>!(await page.locator('#editor').evaluate(e=>e.open)));
  await poll(async()=>(await page.request.get(url+'/api/evaluations').then(r=>r.json())).some(e=>e.report_ready));
  await page.evaluate(async()=>await refresh());await page.locator('[data-action=evaluation-detail]').first().click();await page.waitForSelector('#evaluation-report table');
+ // Real result tables: accessible headers, numeric order, and refresh retention.
+ for(const key of ['summary','runtime','class','confidence','binary-confidence']){
+  const table=page.locator('table[data-sort-key="'+key+'"]');await table.waitFor();
+  const column=key==='binary-confidence'?3:1;
+  const button=table.locator('thead th').nth(column).locator('button');
+  await button.click();
+  if(await table.locator('thead th').nth(column).getAttribute('aria-sort')!=='ascending')throw Error('Missing ascending sort '+key);
+  await button.press('Enter');
+  if(await table.locator('thead th').nth(column).getAttribute('aria-sort')!=='descending')throw Error('Missing descending sort '+key);
+ }
+ const runtimeValues=await page.locator('table[data-sort-key="runtime"] tbody tr').evaluateAll(rows=>rows.map(r=>parseFloat(r.cells[1].textContent.replaceAll(',',''))).filter(Number.isFinite));
+ if(runtimeValues.some((v,i)=>i>0&&runtimeValues[i-1]<v))throw Error('Runtime column not numerically sorted');
+ await page.evaluate(()=>renderEvaluationSummary());
+ await page.waitForFunction(()=>document.querySelector('table[data-sort-key="summary"] th:nth-child(2)').getAttribute('aria-sort')==='descending');
  await page.locator('[data-action=close-detail]').click();
- await page.evaluate(()=>location.hash='prediction');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');
+ await page.evaluate(()=>location.hash='prediction');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');await page.locator('[name=config_models]').selectOption({index:0});
  await page.locator('[name=context_column]').selectOption('context');await page.locator('[name=config_use_context]').selectOption('true');await page.locator('[name=config_strategy]').selectOption('binary');await page.locator('[name=config_confidence]').selectOption('true');await page.locator('[data-action=config-generate]').click();
  await page.locator('#editor-form button[type=submit]').click();await poll(async()=>!(await page.locator('#editor').evaluate(e=>e.open)));
  await poll(async()=>(await page.request.get(url+'/api/predictions').then(r=>r.json())).some(e=>e.artifact_status==='ready'));
  await page.evaluate(async()=>await refresh());await page.locator('[data-action=prediction-detail]').click();await page.waitForSelector('a[href$="/download/requests"]');await page.locator('[data-action=job-detail]').first().click();await page.locator('[data-action=request-log]').click();await page.waitForSelector('#request-log details');
  await page.screenshot({path:base+'/requests-v3.png',fullPage:false,animations:"disabled",timeout:60000});await page.locator('[data-action=close-detail]').click();
- await page.evaluate(()=>location.hash='evaluations');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');await page.setViewportSize({width:390,height:844});
+ await page.evaluate(()=>location.hash='evaluations');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');await page.locator('[name=config_models]').selectOption({index:0});await page.setViewportSize({width:390,height:844});
  await page.screenshot({path:base+'/configurations-v3-mobile.png',fullPage:false,animations:"disabled",timeout:60000});
  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw Error('Mobile overflow');
  if(errors.length)throw Error(errors.join('\n'));
- console.log('PASS v3 browser: defaults, variation expansion, query counts, prompt preview, evaluation, binary prediction, request logs, mobile layout');await browser.close();
+ console.log('PASS v3 browser: CCA-Lab branding, defaults, variants, query counts, previews, sortable result metrics, evaluation, binary prediction, request logs, mobile layout');await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -24,3 +24,4 @@ aside{overflow-y:auto}.step-number{display:grid;place-items:center;flex:0 0 26px
 .option-help:hover [role=tooltip],.option-help:focus [role=tooltip],.option-help:focus-within [role=tooltip]{display:block}
 #configurations-table input{min-width:200px}#configuration-preview{max-height:600px;overflow:auto}
 @media(max-width:600px){.experiment-builder{padding:12px}.option-help [role=tooltip]{left:auto;right:0}}
+

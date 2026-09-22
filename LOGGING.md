@@ -5,11 +5,11 @@ INFO (default) reports startup, CCA import outcomes, dataset imports, job start/
 and evaluation-report/prediction-export generation. Warnings identify rejected HTTP
 requests and failed/fallback classification records.
 
-Set TEXTLAB_LOG_LEVEL=DEBUG for request timing, dataset batch progress, job cursors,
+Set CCA_LAB_LOG_LEVEL=DEBUG for request timing, dataset batch progress, job cursors,
 LLM attempt numbers/error types, and individual result status/duration. Set the
 variable for both processes and restart them. In Compose, edit .env and run
 docker compose up -d --force-recreate, then docker compose logs -f api worker.
-For direct Python runs, export TEXTLAB_LOG_LEVEL=DEBUG before starting each process;
+For direct Python runs, export CCA_LAB_LOG_LEVEL=DEBUG before starting each process;
 Python does not automatically load .env.
 
 Each API response includes X-Request-ID. CCA rejection messages include it for

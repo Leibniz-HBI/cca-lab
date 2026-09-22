@@ -1,8 +1,8 @@
 # CCA Schema 0.1 reference implementation
 
 The uploaded CCA Schema 0.1 JSON Schema is bundled unchanged at
-textlab/schemas/cca-schema-0.1.schema.json. It is the validation authority.
-No remote schema retrieval occurs. TextLab supplements Draft 2020-12 validation
+cca_lab/schemas/cca-schema-0.1.schema.json. It is the validation authority.
+No remote schema retrieval occurs. CCA-Lab supplements Draft 2020-12 validation
 with the category-ID uniqueness and example-reference checks required by the standard.
 
 ## Authoritative representation
@@ -64,7 +64,7 @@ Changing or removing a referenced category leaves missing IDs visible for correc
 it does not silently reassign example or fallback labels.
 
 Codebook version and dates are researcher-controlled. Saving increments only
-the internal TextLab revision. Editing an evaluated instrument as a copy creates
+the internal CCA-Lab revision. Editing an evaluated instrument as a copy creates
 a new codebook ID.
 
 ## Interchange and API
@@ -75,7 +75,7 @@ a new codebook ID.
 - POST /api/tasks/import-cca: accepts a bare CCA JSON codebook, creating a new codebook-only task.
 - GET /api/tasks/{id}/export-cca: exports exactly the current codebook.
 - "CCA JSON ↓" downloads only the standard codebook.
-- "TextLab task JSON ↓" downloads the native {codebook} wrapper.
+- "CCA-Lab task JSON ↓" downloads the native {codebook} wrapper.
 
 CCA import accepts UTF-8/BOM, rejects duplicate keys and limits uploads to 5 MiB.
 Schema-allowed values are not trimmed, renamed or silently truncated.

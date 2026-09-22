@@ -1,4 +1,6 @@
 """One durable coordinator, bounded request threads. Run as a separate process."""
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 import csv
 import fcntl
 import json
@@ -7,14 +9,11 @@ import signal
 import threading
 import time
 from .runtime import timed_batch
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
-import httpx
 
 from .db import connect, dumps, heartbeat, init, root
-from .llm import classify
 
-log = logging.getLogger("textlab.worker")
+log = logging.getLogger("cca_lab.worker")
 stopping = threading.Event()
 
 
@@ -71,57 +70,82 @@ def save_result(job_id, row_no, result):
             job_id, row_no, dumps(result["labels"]), result["rationale"], result["status"], result["error"], result["raw"],
             result["attempts"], result["seconds"], result["prompt_tokens"], result["completion_tokens"], dumps(result.get("evidence", [])), result.get("thinking"), dumps(result.get("attempt_outputs", [])), max(int(bool(result["error"])),sum(bool(a.get("error")) for a in result.get("attempt_outputs", []))), result.get("self_reported_confidence"), dumps(result.get("alternative_interpretations", [])), dumps(result.get("candidate_interpretations", [])))).rowcount
         if inserted:
-            db.execute("UPDATE jobs SET done=done+1,failed=failed+?,fallback_count=fallback_count+?,updated=?,last_error=COALESCE(?,last_error),requests=requests+?,prompt_tokens=prompt_tokens+?,completion_tokens=completion_tokens+?,total_seconds=total_seconds+? WHERE id=?", (
-                int(result["status"] != "ok"), int(result["status"] == "fallback"), time.time(), result["error"], (0 if result.get("accounted") else result["attempts"]), result["prompt_tokens"], result["completion_tokens"], (0 if result.get("accounted") else result["seconds"]), job_id))
+            db.execute("UPDATE jobs SET done=done+1,failed=failed+?,fallback_count=fallback_count+?,updated=?,last_error=COALESCE(?,last_error) WHERE id=?", (
+                int(result["status"] != "ok"), int(result["status"] == "fallback"), time.time(), result["error"], job_id))
 
 
 def run_batch(job):
     log.debug("job_batch job_id=%s cursor=%s", job["id"], job["cursor"])
-    snap = json.loads(job["snapshot"])
-    if snap.get("prompt_protocol")=="experiment-v3":
-        from .executor import run_window
-        return run_window(job,stopping,save_result)
-    concurrency = snap["query"]["concurrency"]
-    # Cursor is committed only after the whole bounded window has settled.
-    # Crash recovery skips already committed results inside this window.
-    with connect() as db:
-        rows = db.execute("SELECT row_no,data FROM records WHERE dataset_id=? AND row_no>? ORDER BY row_no LIMIT ?", (
-            job["dataset_id"], job["cursor"], concurrency)).fetchall()
-        completed = {r[0] for r in db.execute("SELECT row_no FROM results WHERE job_id=? AND row_no>? AND row_no<=?", (
-            job["id"], job["cursor"], rows[-1]["row_no"] if rows else job["cursor"]))}
-    if not rows:
-        log.info("job_finished job_id=%s done=%s failed=%s", job["id"], job["done"], job["failed"])
-        with connect() as db:
-            db.execute("UPDATE jobs SET status=CASE WHEN failed>0 THEN 'completed_with_errors' ELSE 'completed' END,updated=?,finished_at=? WHERE id=? AND status='running'", (time.time(), time.time(), job["id"]))
-        return
-    with httpx.Client(trust_env=False, limits=httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)) as client:
-        with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            futures = {}
-            all_submitted = True
-            for row in rows:
-                if row["row_no"] in completed:
-                    continue
-                with connect() as db:
-                    status = db.execute("SELECT status FROM jobs WHERE id=?", (job["id"],)).fetchone()[0]
-                if stopping.is_set() or status != "running":
-                    all_submitted = False
-                    break
-                text = json.loads(row["data"]).get(snap["text_column"])
-                futures[pool.submit(classify, snap, text, client)] = row["row_no"]
-            while futures:
-                finished, _ = wait(futures, timeout=1, return_when=FIRST_COMPLETED)
-                for future in finished:
-                    row_no = futures.pop(future)
-                    save_result(job["id"], row_no, future.result())
-    if all_submitted:
-        with connect() as db:
-            db.execute("UPDATE jobs SET cursor=?,updated=? WHERE id=?", (rows[-1]["row_no"], time.time(), job["id"]))
+    from .executor import run_window
+    return run_window(job,stopping,save_result)
 
 
-def tick():
+def endpoint_key(job):
+    """Serialize profiles pointing at the same HTTP origin (including API aliases)."""
+    profile = json.loads(job["snapshot"])["profile"]
+    url = urlsplit(profile["base_url"])
+    return (url.scheme.lower(), (url.hostname or "").lower(),
+            url.port or (443 if url.scheme.lower() == "https" else 80))
+
+
+def execute_window(job):
+    try:
+        timed_batch(job, run_batch)
+    except Exception:
+        log.exception("Job worker error for %s", job["id"])
+        with connect() as db:
+            db.execute("UPDATE jobs SET status='paused',last_error='Internal worker error; check server log',updated=? WHERE id=? AND status='running'", (time.time(), job["id"]))
+
+
+class ConnectionScheduler:
+    """One in-flight window per server; keep request concurrency inside each job."""
+    def __init__(self, max_connections=8):
+        self.pool = ThreadPoolExecutor(max_workers=max_connections, thread_name_prefix="connection")
+        self.limit = max_connections
+        self.active = {}
+
+    def reap(self):
+        for key, (job_id, future) in list(self.active.items()):
+            if future.done():
+                future.result()
+                del self.active[key]
+
+    def dispatch(self):
+        if stopping.is_set():
+            return False
+        dispatched = False
+        # The coordinator alone claims jobs. Commit before starting a request thread.
+        with connect() as db:
+            jobs = [dict(j) for j in db.execute("SELECT * FROM jobs WHERE status IN ('queued','running') ORDER BY created,id")]
+        for job in jobs:
+            if len(self.active) >= self.limit:
+                break
+            key = endpoint_key(job)
+            if key in self.active:
+                continue
+            with connect() as db:
+                changed = db.execute("UPDATE jobs SET status='running',updated=? WHERE id=? AND status IN ('queued','running')", (time.time(), job['id'])).rowcount
+            if not changed:
+                continue
+            if job['status'] == 'queued':
+                log.info("job_started job_id=%s endpoint=%s total=%s", job['id'], key, job['total'])
+            log.debug("job_window_dispatched job_id=%s endpoint=%s", job['id'], key)
+            self.active[key] = (job['id'], self.pool.submit(execute_window, job))
+            dispatched = True
+        return dispatched
+
+    def close(self):
+        self.pool.shutdown(wait=True)
+
+
+def tick(scheduler=None):
+    if scheduler:
+        scheduler.reap()
+    active_ids = [job_id for job_id, _ in scheduler.active.values()] if scheduler else []
     with connect() as db:
-        db.execute("UPDATE jobs SET status=CASE status WHEN 'pausing' THEN 'paused' ELSE 'cancelled' END,finished_at=CASE WHEN status='cancelling' THEN ? ELSE finished_at END,updated=? WHERE status IN ('pausing','cancelling')", (time.time(),time.time()))
+        db.execute("UPDATE jobs SET status=CASE status WHEN 'pausing' THEN 'paused' ELSE 'cancelled' END,finished_at=CASE WHEN status='cancelling' THEN ? ELSE finished_at END,updated=? WHERE status IN ('pausing','cancelling')" + (" AND id NOT IN (" + ",".join("?" for _ in active_ids) + ")" if active_ids else ""), (time.time(),time.time(),*active_ids))
         dataset = db.execute("SELECT * FROM datasets WHERE status IN ('uploaded','importing') ORDER BY created LIMIT 1").fetchone()
+    dispatched = scheduler.dispatch() if scheduler else False
     from .evaluation import finalize_one
     if finalize_one():
         return True
@@ -131,6 +155,8 @@ def tick():
     if dataset:
         import_dataset(dict(dataset))
         return True
+    if scheduler:
+        return dispatched
     with connect() as db:
         job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','running') ORDER BY created LIMIT 1").fetchone()
         if job:
@@ -138,12 +164,7 @@ def tick():
     if job:
         if job["status"] == "queued":
             log.info("job_started job_id=%s total=%s", job["id"], job["total"])
-        try:
-            timed_batch(dict(job), run_batch)
-        except Exception:
-            log.exception("Job worker error for %s", job["id"])
-            with connect() as db:
-                db.execute("UPDATE jobs SET status='paused',last_error='Internal worker error; check server log',updated=? WHERE id=? AND status='running'", (time.time(), job["id"]))
+        execute_window(dict(job))
         return True
     return False
 
@@ -176,11 +197,16 @@ def main():
     thread = threading.Thread(target=pulse, daemon=True)
     thread.start()
     log.info("Worker ready")
-    while not stopping.is_set():
-        if not tick():
-            stopping.wait(0.5)
-    thread.join(timeout=3)
-    lock.close()
+    scheduler = ConnectionScheduler()
+    try:
+        while not stopping.is_set():
+            if not tick(scheduler):
+                stopping.wait(0.1)
+    finally:
+        stopping.set()
+        scheduler.close()  # Drain requests before releasing the process lock.
+        thread.join(timeout=3)
+        lock.close()
 
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
 (async()=>{
- const fs=require('fs'),base=process.env.TEXTLAB_SCREENSHOT_DIR||'/tmp';
+ const fs=require('fs'),base=process.env.CCA_LAB_SCREENSHOT_DIR||'/tmp';
  const browser=await require('playwright').chromium.launch({headless:true});
- const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[];
+ const context=await browser.newContext({viewport:{width:1440,height:1050}});const page=await context.newPage(),errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=500)errors.push(r.status()+' '+r.url())});
  const poll=async fn=>{for(let i=0;i<150;i++){if(await fn())return;await new Promise(r=>setTimeout(r,200));}throw Error('Background operation timed out');};
- const post=async(path,data)=>{const r=await page.request.post((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api'+path,{data:typeof data==='string'?Buffer.from(data):data});if(!r.ok())throw Error(await r.text());return r.json()};
- await page.goto((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099'));await page.waitForFunction(()=>document.querySelector('#title').textContent==='Define tasks');
+ const post=async(path,data)=>{const r=await page.request.post((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api'+path,{data:typeof data==='string'?Buffer.from(data):data});if(!r.ok())throw Error(await r.text());return r.json()};
+ await page.goto((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099'));await page.waitForFunction(()=>document.querySelector('#title').textContent==='Define tasks');
  if(await page.locator('nav[aria-label="Research workflow"] a').count()!==5)throw Error('Workflow must have 5 steps');
  if(await page.locator('.config-section a[href="#profiles"]').count()!==1)throw Error('Missing separate config');
 
@@ -18,7 +18,7 @@
  if(!await picker.element().evaluate(el=>el.isConnected))throw Error('Picker detached during refresh');
  await picker.setFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from('{}')});
  await page.waitForFunction(()=>document.querySelector('#cca-import-status').textContent.includes('CCA import:'));
- if((await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/tasks').then(r=>r.json())).length)throw Error('Invalid import created task');
+ if((await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/tasks').then(r=>r.json())).length)throw Error('Invalid import created task');
  await page.evaluate(async()=>{await refresh();});
  if(!(await page.locator('#cca-import-status').innerText()).includes('CCA import:'))throw Error('Error disappeared on refresh');
  const second=page.waitForEvent('filechooser');await page.locator('[data-action=cca-import]').click();
@@ -77,7 +77,7 @@
  await page.locator('[name=explanation]').fill('Explicit praise');
  await page.locator('#editor-form button[type=submit]').click();
  await page.waitForFunction(()=>!document.querySelector('#editor').open);
- const tasks=await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/tasks').then(r=>r.json());
+ const tasks=await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/tasks').then(r=>r.json());
  const fresh=tasks.find(t=>t.spec.codebook.title==='Fresh CCA task');
  if(!fresh||'execution_defaults' in fresh.spec||fresh.spec.codebook.examples[0].labels[0]!=='positive')throw Error('Fresh task not stored canonically');
  const nativeDownload=page.waitForEvent('download');await page.locator('[data-action=download-task][data-id="'+fresh.id+'"]').click();
@@ -91,23 +91,29 @@
  await page.setViewportSize({width:1440,height:1050});
  const profile=await post('/profiles',{name:'Demo',provider:'mock',base_url:'http://localhost'});
  const dataset=await page.evaluate(async csv=>{const r=await fetch('/api/datasets?filename=gold.csv',{method:'POST',body:csv});if(!r.ok)throw Error(await r.text());return r.json();},['doc_id,text,gold_label','1,Wonderful,positive','2,Poor,negative',''].join(String.fromCharCode(10)));
- await poll(async()=>(await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/datasets').then(r=>r.json())).find(d=>d.id===dataset.id)?.status==='ready');
+ await poll(async()=>(await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/datasets').then(r=>r.json())).find(d=>d.id===dataset.id)?.status==='ready');
  const gold=await post('/gold-sets',{name:'Gold',dataset_id:dataset.id,doc_id_column:'doc_id',text_column:'text',gold_column:'gold_label'});
  const evaluation=await post('/evaluations',{name:'CCA check',task_id:fresh.id,gold_id:gold.id,seeds:[1,2],variants:[{name:'Demo',profile_id:profile.id,query:{model:'mock'}}]});
- await poll(async()=>(await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/evaluations/'+evaluation.id).then(r=>r.json())).report_ready);
+ await poll(async()=>(await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/evaluations/'+evaluation.id).then(r=>r.json())).report_ready);
  await page.evaluate(async()=>{await refresh();location.hash='evaluations';});
  await page.locator('[data-action=evaluation-detail]').click();
  await page.waitForSelector('#evaluation-report table');
  if(!(await page.locator('#evaluation-report').innerText()).includes('positive'))throw Error('Evaluation did not use category IDs');
+ const exportedHtml=await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/evaluations/'+evaluation.id+'/report?format=html').then(r=>r.text());
+ const offline=await page.context().newPage();await offline.setContent(exportedHtml);
+ await offline.waitForSelector('table .column-sort');await offline.locator('table .column-sort').first().click();
+ if(await offline.locator('table th').first().getAttribute('aria-sort')!=='ascending')throw Error('Offline HTML sorting failed');
+ await offline.close();
+
  await page.locator('[data-action=close-detail]').click();
  await page.evaluate(()=>location.hash='prediction');
  await page.locator('#primary').click();
  await page.locator('[name=task_ids]').selectOption(fresh.id);
- await page.waitForSelector('[name=config_models] option');await page.locator('[data-action=config-generate]').click();
+ await page.waitForSelector('[name=config_models] option');await page.locator('[name=config_models]').selectOption({index:0});await page.locator('[data-action=config-generate]').click();
  await page.locator('[name=name]').fill('CCA prediction');
  await page.locator('#editor-form button[type=submit]').click();
  await page.waitForFunction(()=>!document.querySelector('#editor').open);
- await poll(async()=>(await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/predictions').then(r=>r.json())).some(p=>p.artifact_status==='ready'));
+ await poll(async()=>(await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/predictions').then(r=>r.json())).some(p=>p.artifact_status==='ready'));
  await page.evaluate(async()=>{await refresh();});
  await page.locator('[data-action=prediction-detail]').click();
  await page.waitForSelector('#detail-body a[href*="/download/csv"]');
@@ -119,9 +125,9 @@
  await page.locator('[name=name]').fill('Revised Gold');
  await page.locator('#editor-form button[type=submit]').click();
  await poll(async()=>!(await page.locator('#editor').evaluate(e=>e.open)));
- await poll(async()=>(await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/gold-sets').then(r=>r.json())).some(g=>g.spec.name==='Revised Gold'));
+ await poll(async()=>(await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/gold-sets').then(r=>r.json())).some(g=>g.spec.name==='Revised Gold'));
  const single=await post('/evaluations',{name:'Single run',task_id:fresh.id,gold_id:gold.id,variants:[{name:'Single',profile_id:profile.id,query:{model:'mock'}}]});
- await poll(async()=>(await page.request.get((process.env.TEXTLAB_TEST_URL||'http://127.0.0.1:8099')+'/api/evaluations/'+single.id).then(r=>r.json())).report_ready);
+ await poll(async()=>(await page.request.get((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api/evaluations/'+single.id).then(r=>r.json())).report_ready);
  await page.evaluate(async()=>{await refresh();location.hash='evaluations';});
  await page.locator('[data-action=evaluation-detail][data-id="'+single.id+'"]').click();
  await page.waitForSelector('#evaluation-report table');

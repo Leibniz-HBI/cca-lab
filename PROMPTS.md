@@ -52,6 +52,6 @@ POST /api/tasks/preview-request accepts {task, query?, provider?, text?} and ret
 
 ## Protocol provenance
 
-New jobs always use experiment-v3. The immediately preceding cca-reference-v2 execution path remains only for existing saved jobs. Snapshots and request records preserve provenance; the protocol is not a UI option. Binary requests expose one category definition and ask for either [category_id] or []; batches use stable sample IDs. Evidence and candidate supporting quotes must match the target text, never context or another sample. See EXPERIMENTS.md.
+Only experiment-v3 is accepted. No earlier compiler or snapshot translation is included. Snapshots and request records preserve provenance; the protocol is not a UI option. Binary requests expose one category definition and ask for either [category_id] or []; batches use stable sample IDs. Evidence and candidate supporting quotes must match the target text, never context or another sample. See EXPERIMENTS.md.
 
 Prompt formatting is tested for implementation correctness; no empirical accuracy or calibration gain is claimed.

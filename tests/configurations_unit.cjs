@@ -2,7 +2,7 @@
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),path=require('path');
 const elements={};
 const ctx=vm.createContext({document:{addEventListener(){}},$:(s)=>elements[s],num:String,edit:{kind:'evaluation'},assert});
-for(const file of ['repetitions.js','configurations.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../textlab/static',file),'utf8'),ctx);
+for(const file of ['repetitions.js','configurations.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../cca_lab/static',file),'utf8'),ctx);
 const names=vm.runInContext('experimentFields.flatMap(x=>x[1].map(f=>[f[0],String(f[2])]))',ctx);
 for(const [key,value] of names)elements['[name=config_'+key+']']={value};
 for(const key of ['manual_models','name','profile','extra_body'])elements['[name=config_'+key+']']={value:key==='extra_body'?'{}':''};

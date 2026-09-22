@@ -1,21 +1,13 @@
-# Validation — TextLab 0.12.1
+# Validation — CCA-Lab 0.13.1
 
-139 Python tests passed. New coverage exercises both provider request shapes, joint/binary strategy, batching and context combinations; empty label sets; partial retries; shared token accounting; binary component aggregation and fallback; pause/resume and interrupted request budgets; HTTP failure handling; configuration expansion; preview endpoints; Parquet and request exports; and the schema 6→7 upgrade preserving saved snapshots. Existing CCA, quality/runtime, confidence, repetition, deletion, error-log and current-snapshot regression checks remain included.
+126 Python tests passed, including concurrent endpoint scheduling, same-endpoint serialization, pause/cancel draining, and immutable evaluation snapshots across new evaluations and profile edits. Obsolete executor and migration tests were retired. Current coverage includes codebook-only task validation, rejection of unsupported protocols and database schemas without mutation, preview/execution consistency, batched and binary classification, context, retries, fallbacks, interruption budgets, thinking capture, cancellation, quality/runtime/confidence metrics, reports, exports, and deletion.
 
-The Playwright/Chromium experiment workflow passed configuration defaults, variation generation, planned query counts, actual-data prompt previews, evaluation completion, binary prediction, request logs, exports and mobile overflow checks, with no JavaScript or HTTP 5xx errors. Desktop and mobile screenshots were inspected. The separate CCA browser workflow also passed actual file selection across refresh, invalid-file feedback, create/edit/export, criteria and context preservation, gold editing, single-run SD omission, evaluation, prediction, error logs and desktop/mobile task-import layouts.
+Regression checks in `tests/detail_races_unit.cjs` and `tests/model_selection_unit.cjs` cover delayed details/reports, connection switches, stale model lists and editor reopening. JavaScript checks passed for comma-separated parameter expansion, seeds and query estimates, and numeric/text metric sorting with missing values. Run `node tests/configurations_unit.cjs` and `node tests/tables_unit.cjs`. JavaScript syntax checks also passed.
 
-JavaScript syntax checks passed. A 0.12.0 wheel built successfully, and its contents include the new compiler, executor, configuration UI and database schema.
+The CCA-Lab wheel builds with the renamed Python package, current executor/compiler, schema and sortable-table assets. No old package namespace is bundled.
 
-Three non-failing Python warnings concern test-client deprecations and a single-class scikit-learn metric fixture. Model calls were mocked. No live-model accuracy/calibration benchmark, GPU throughput benchmark or new 500 MB import benchmark was performed.
+Both browser workflows passed using Playwright and Chromium against a disposable API/worker, including sortable metrics and sorting in standalone HTML reports. Browser checks use mocked model responses. `tests/experiments_browser.cjs` covers configuration defaults and expansion, query counts, previews, result-table sorting in both directions with keyboard activation and refresh retention, evaluation, binary prediction, request logs and mobile layout. `tests/cca_browser.cjs` covers CCA file selection/import/edit/export, field validation, gold editing, single-run reporting, error logs, prediction and standalone HTML report sorting. Use a fresh data directory for each workflow and set CCA_LAB_TEST_URL and optionally CCA_LAB_SCREENSHOT_DIR.
 
-Run Python checks with `python -m pytest -q`. Browser checks require Playwright, Chromium and a disposable API/worker with an empty data directory:
+Three non-failing Python warnings concern test-client deprecations and a single-class scikit-learn metric fixture. Model calls are mocked. No live-model accuracy/calibration benchmark, GPU throughput benchmark or new 500 MB import benchmark was performed. Docker itself was not run in this environment.
 
-```
-TEXTLAB_TEST_URL=http://127.0.0.1:8099 node tests/experiments_browser.cjs
-```
-
-Use a separate empty data directory for `node tests/cca_browser.cjs`. Optional `TEXTLAB_SCREENSHOT_DIR` controls screenshot output. Browser tests create test data and model connections. Use requirements.lock for reproducible Python dependencies.
-
-## 0.12.1 checks
-
-All 139 Python tests passed after switching seed-string parsing to commas. `node tests/configurations_unit.cjs` passed comma-list Cartesian expansion, seed validation, duplicate-value normalization, rejection of empty list entries, and mixed-task query estimates. The backend independently produced identical totals for 101 documents, two models, two Top-P values, two few-shot counts, batch sizes 1/10, joint/binary strategies, two seeds and tasks with 3/5 categories: 128 runs, 17,920 nominal requests, 129,280 maximum attempts. Browser workflow evidence above refers to 0.12.0; the portable browser script now uses comma-separated seeds.
+Run the Python suite with `python -m pytest -q`. Use requirements.lock for reproducible dependencies.

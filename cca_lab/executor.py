@@ -9,7 +9,7 @@ from .models import Task,Query,Profile
 from .experiment import prepare_item,batches,compile_request,perform
 
 
-log=logging.getLogger("textlab.executor")
+log=logging.getLogger("cca_lab.executor")
 
 def request_once(job, snapshot, category, items, client):
     q=Query(**snapshot['query']);task=Task(**snapshot['task']);profile=Profile(**snapshot['profile'])
@@ -52,7 +52,7 @@ def aggregate(db, job, snapshot, row_no, categories):
     if len(rows)!=len(categories) or any(r['status']=='pending' for r in rows.values()):return None
     q=Query(**snapshot['query']);parts=[json.loads(rows[c]['result'] or '{}') for c in categories]
     failed=any(r['status']!='ok' for r in rows.values())
-    result=dict(labels=[],rationale=None,status='failed' if failed else 'ok',error=None,raw=None,attempts=0,seconds=0,prompt_tokens=0,completion_tokens=0,evidence=[],thinking=None,attempt_outputs=[],candidate_interpretations=[],alternative_interpretations=[],self_reported_confidence=None,accounted=True)
+    result=dict(labels=[],rationale=None,status='failed' if failed else 'ok',error=None,raw=None,attempts=0,seconds=0,prompt_tokens=0,completion_tokens=0,evidence=[],thinking=None,attempt_outputs=[],candidate_interpretations=[],alternative_interpretations=[],self_reported_confidence=None)
     if len(categories)==1 and categories[0]=='':result.update({k:v for k,v in parts[0].items() if k not in ('status','error')})
     else:
         result['labels']=[c for c,part in zip(categories,parts) if c in part.get('labels',[])]
@@ -79,7 +79,9 @@ def aggregate(db, job, snapshot, row_no, categories):
 
 
 def run_window(job, stopping, save_result):
-    snapshot=json.loads(job['snapshot']);q=Query(**snapshot['query']);task=Task(**snapshot['task'])
+    snapshot=json.loads(job['snapshot'])
+    if snapshot['prompt_protocol']!='experiment-v3':raise ValueError('Unsupported prompt protocol')
+    q=Query(**snapshot['query']);task=Task(**snapshot['task'])
     categories=[c.id for c in task.categories] if q.strategy=='binary' else ['']
     with connect() as db:
         rows=db.execute('SELECT row_no,data FROM records WHERE dataset_id=? AND row_no>? ORDER BY row_no LIMIT ?', (job['dataset_id'],job['cursor'],q.batch_size*q.concurrency)).fetchall()

@@ -65,7 +65,7 @@ taskEditor=function(id,seedSpec=null){
  const c=t?.codebook||{$schema:CCA_SCHEMA,id:newCodebookId(),version:'0.1.0',title:'',description:'',task:{instructions:'',unit_of_analysis:'document',classification_mode:'single_label',categories:[{id:'',label:'',definition:''}]}};
  const task=c.task;
  openEditor(existing?'Edit task':'Create task',
- '<section class="cca-section"><h3>Codebook identity</h3>'+ccaField('Title','title',c.title,'text',true)+ccaArea('Description','description',c.description,true)+'<div class="grid">'+ccaField('Stable codebook ID','codebook_id',c.id,'text',true)+ccaField('Codebook version','codebook_version',c.version,'text',true)+'</div><p class="small">CCA Schema 0.1 · Codebook version is independent of the automatic TextLab revision.</p><details><summary>Language, provenance and references</summary>'+ccaField('Language (optional, e.g. en or de)','language',c.language||'')+listItems('authors',c.authors||[],'Authors')+listItems('maintainers',c.maintainers||[],'Maintainers')+'<div class="grid">'+ccaField('Created date','created_at',c.created_at||'','date')+ccaField('Modified date','modified_at',c.modified_at||'','date')+'</div><div class="section-title"><strong>References</strong><button type="button" data-action="cca-add-reference">+ Reference</button></div><div id="cca-references">'+(c.references||[]).map(referenceHTML).join('')+'</div></details></section>'+
+ '<section class="cca-section"><h3>Codebook identity</h3>'+ccaField('Title','title',c.title,'text',true)+ccaArea('Description','description',c.description,true)+'<div class="grid">'+ccaField('Stable codebook ID','codebook_id',c.id,'text',true)+ccaField('Codebook version','codebook_version',c.version,'text',true)+'</div><p class="small">CCA Schema 0.1 · Codebook version is independent of the automatic CCA-Lab revision.</p><details><summary>Language, provenance and references</summary>'+ccaField('Language (optional, e.g. en or de)','language',c.language||'')+listItems('authors',c.authors||[],'Authors')+listItems('maintainers',c.maintainers||[],'Maintainers')+'<div class="grid">'+ccaField('Created date','created_at',c.created_at||'','date')+ccaField('Modified date','modified_at',c.modified_at||'','date')+'</div><div class="section-title"><strong>References</strong><button type="button" data-action="cca-add-reference">+ Reference</button></div><div id="cca-references">'+(c.references||[]).map(referenceHTML).join('')+'</div></details></section>'+
  '<section class="cca-section"><h3>Coding instructions</h3>'+ccaArea('General coding instructions','instructions',task.instructions,true)+'<div class="grid">'+ccaField('Unit of analysis','unit_of_analysis',task.unit_of_analysis,'text',true)+select('Classification mode','classification_mode',option('single_label','Single label',task.classification_mode)+option('multi_label','Multi-label',task.classification_mode))+'</div>'+ccaArea('Permitted additional context (optional)','context',task.context||'')+'</section>'+
  '<section class="cca-section"><div class="section-title"><h3>Categories</h3><button type="button" data-action="add-category">+ Category</button></div><p class="small">Predictions use category IDs. Define an explicit category for “none applicable” if your codebook requires it.</p><div id="categories">'+task.categories.map(categoryHTML).join('')+'</div></section>'+
  '<section class="cca-section"><div class="section-title"><h3>Examples</h3><button type="button" data-action="cca-add-example">+ Example</button></div><div id="cca-examples">'+(c.examples||[]).map(exampleHTML).join('')+'</div></section>'+
@@ -84,14 +84,11 @@ function syncCategoryChoices(){
   el.innerHTML=categories.map(c=>'<option value="'+esc(c.id)+'" '+(selected.includes(c.id)?'selected':'')+'>'+esc(c.id+' · '+c.label)+'</option>').join('')+selected.filter(id=>!ids.has(id)).map(id=>'<option selected value="'+esc(id)+'">'+esc(id+' (missing category)')+'</option>').join('');
   el.size=Math.max(2,Math.min(6,el.options.length));
  });
- const fallback=$('[name=default_label]');if(fallback){
-  const value=fallback.dataset.selected!==undefined?fallback.dataset.selected:fallback.value;delete fallback.dataset.selected;
-  fallback.innerHTML=option('','No fallback',value)+categories.map(c=>option(c.id,c.id+' · '+c.label,value)).join('')+(value&&!categories.some(c=>c.id===value)?option(value,value+' (missing category)',value):'');
- }
+
 }
 function indexCCAFields(){
  const set=(el,path)=>{if(el)el.dataset.ccaPath=path;};
- const fields={title:'/title',description:'/description',codebook_id:'/id',codebook_version:'/version',language:'/language',created_at:'/created_at',modified_at:'/modified_at',instructions:'/task/instructions',unit_of_analysis:'/task/unit_of_analysis',classification_mode:'/task/classification_mode',context:'/task/context',default_label:'/execution_defaults/default_label'};
+ const fields={title:'/title',description:'/description',codebook_id:'/id',codebook_version:'/version',language:'/language',created_at:'/created_at',modified_at:'/modified_at',instructions:'/task/instructions',unit_of_analysis:'/task/unit_of_analysis',classification_mode:'/task/classification_mode',context:'/task/context'};
  Object.entries(fields).forEach(([name,path])=>set($('[name='+name+']'),path));
  set($('#categories'),'/task/categories');
  document.querySelectorAll('.cca-category').forEach((el,i)=>{
@@ -164,7 +161,7 @@ document.addEventListener('invalid',e=>{
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-action]');if(!b)return;
  try{
-  if(b.dataset.action==='cca-import'&&!ccaImportBusy){console.debug('[TextLab] CCA picker opened');ccaFile.click();}
+  if(b.dataset.action==='cca-import'&&!ccaImportBusy){console.debug('[CCA-Lab] CCA picker opened');ccaFile.click();}
   if(b.dataset.action==='cca-export'){
    const response=await fetch('/api/tasks/'+b.dataset.id+'/export-cca');if(!response.ok)throw Error((await response.json()).detail);
    const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download='codebook-'+b.dataset.id+'.cca.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -175,13 +172,13 @@ ccaFile.addEventListener('change',async ()=>{
  const file=ccaFile.files[0];if(!file||ccaImportBusy)return;
  ccaImportBusy=true;const button=$('[data-action=cca-import]');if(button)button.disabled=true;
  ccaStatus('Importing CCA codebook…');
- console.debug('[TextLab] CCA import started',{bytes:file.size});
+ console.debug('[CCA-Lab] CCA import started',{bytes:file.size});
  let importedId=null;
  try{
   if(file.size>5*1024*1024)throw Error('Maximum codebook size is 5 MiB.');
   const response=await fetch('/api/tasks/import-cca',{method:'POST',headers:{'Content-Type':'application/json'},body:file});
   const requestId=response.headers.get('X-Request-ID');
-  console.debug('[TextLab] CCA import response',{status:response.status,requestId});
+  console.debug('[CCA-Lab] CCA import response',{status:response.status,requestId});
   let body;try{body=await response.json();}catch{throw Error('Server returned an unreadable response (HTTP '+response.status+'). Check server logs.');}
   if(!response.ok)throw Error((typeof body.detail==='string'?body.detail:JSON.stringify(body.detail)||'Import failed')+(requestId?' [Request '+requestId+']':''));
   importedId=body.id;
@@ -191,6 +188,6 @@ ccaFile.addEventListener('change',async ()=>{
  }catch(error){
   const message=importedId?'Task imported ('+importedId+'), but the view could not refresh. Reload the page.':error.message;
   ccaStatus(message);toast(message);
-  console.warn('[TextLab] CCA import failed',{stage:importedId?'refresh':'upload',errorType:error.name});
+  console.warn('[CCA-Lab] CCA import failed',{stage:importedId?'refresh':'upload',errorType:error.name});
  }finally{ccaImportBusy=false;ccaFile.value='';const button=$('[data-action=cca-import]');if(button)button.disabled=false;}
 });

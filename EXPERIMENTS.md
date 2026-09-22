@@ -1,4 +1,4 @@
-# Experiment configurations (0.12)
+# Experiment configurations 
 
 Tasks describe CCA codebooks only. Evaluation and prediction share the same configuration builder: choose models, generate combinations, review the table and query estimate, inspect a prompt preview, then start. Defaults are maximum output tokens 8192, retries 3 and seed 9721.
 

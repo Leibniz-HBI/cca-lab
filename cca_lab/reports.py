@@ -156,7 +156,7 @@ def html_table(rows):
     if not rows:
         return '<p>No results</p>'
     keys=list(dict.fromkeys(key for row in rows for key in row))
-    return '<div class="table"><table><thead><tr>'+''.join('<th>'+html.escape(key)+'</th>' for key in keys)+'</tr></thead><tbody>'+''.join('<tr>'+''.join('<td>'+html.escape(display(row.get(key)))+'</td>' for key in keys)+'</tr>' for row in rows)+'</tbody></table></div>'
+    return '<div class="table"><table data-sort-key="'+html.escape('|'.join(keys),quote=True)+'"><thead><tr>'+''.join('<th>'+html.escape(key)+'</th>' for key in keys)+'</tr></thead><tbody>'+''.join('<tr>'+''.join('<td>'+html.escape(display(row.get(key)))+'</td>' for key in keys)+'</tr>' for row in rows)+'</tbody></table></div>'
 
 
 def confidence_rows(report,scope):
@@ -178,6 +178,10 @@ def confidence_rows(report,scope):
 
 
 def html_report(report,scope):
+    from pathlib import Path
+    assets=Path(__file__).with_name('static')
+    sorting_script=(assets/'tables.js').read_text()
+    sorting_style=(assets/'tables.css').read_text()
     title=html.escape(report['name'])
     images=''
     for kind,metric in (('overview','f1_macro'),('overview','active_seconds'),('classes','f1')):
@@ -189,12 +193,12 @@ def html_report(report,scope):
         images+=f'<h2>Confidence: {kind}</h2><img alt="{kind}" src="data:image/svg+xml;base64,{svg}">'
     notes=''.join('<p><strong>'+html.escape(key)+':</strong> '+html.escape(value)+'</p>' for key,value in report['policies'].items())
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{title}</title>
-<style>body{{font:16px/1.6 system-ui;color:#172438;max-width:1400px;margin:40px auto;padding:0 25px}}h1,h2{{line-height:1.3}}h1{{color:#007f87}}.table{{overflow:auto;margin:25px 0}}table{{border-collapse:collapse;font-size:13px}}th,td{{padding:8px 12px;border:1px solid #dce3ec;text-align:left;white-space:nowrap}}th{{background:#edf4f7}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef3f7;padding:20px}}@media print{{body{{margin:0}}.table{{overflow:visible}}table{{font-size:9px}}th,td{{padding:3px}}}}</style></head><body>
-<h1>{title}</h1><p>TextLab {__version__} · Evaluation report · {html.escape(scope)} · Gold documents: {report['gold']['total']} · Common assigned documents: {report['common_n']}</p>
+<style>body{{font:16px/1.6 system-ui;color:#172438;max-width:1400px;margin:40px auto;padding:0 25px}}h1,h2{{line-height:1.3}}h1{{color:#007f87}}.table{{overflow:auto;margin:25px 0}}table{{border-collapse:collapse;font-size:13px}}th,td{{padding:8px 12px;border:1px solid #dce3ec;text-align:left;white-space:nowrap}}th{{background:#edf4f7}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef3f7;padding:20px}}@media print{{body{{margin:0}}.table{{overflow:visible}}table{{font-size:9px}}th,td{{padding:3px}}}}</style><style>{sorting_style}</style></head><body>
+<h1>{title}</h1><p>CCA-Lab {__version__} · Evaluation report · {html.escape(scope)} · Gold documents: {report['gold']['total']} · Common assigned documents: {report['common_n']}</p>
 <p>{html.escape(report['policies'][scope])}</p><h2>Model comparison</h2>{html_table(metric_rows(report,scope))}{images}<h2>Results by class</h2>{html_table(metric_rows(report,scope,True))}
 <h2>Confidence metrics</h2>{html_table(confidence_rows(report,scope))}<h2>Scoring conventions</h2>{notes}<h2>Configuration and reproducibility</h2><pre>{html.escape(json.dumps({k:v for k,v in report.items() if k!='scopes'},ensure_ascii=False,indent=2))}</pre>
 {''.join('<h3>'+html.escape(r['variant'])+'</h3><pre>'+html.escape(json.dumps(r['snapshot'],ensure_ascii=False,indent=2))+'</pre>' for r in report['scopes'][scope]['runs'])}
-</body></html>'''
+<script>{sorting_script}</script></body></html>'''
 
 
 PREDICTION_FIELDS=['component_results','self_reported_confidence','alternative_interpretations','candidate_interpretations','seed','fallback_used','variant','job_id','row_no','doc_id','text','gold_labels','predicted_labels','exact_match','status','error','rationale','evidence','thinking','raw','attempt_outputs','attempts','seconds']

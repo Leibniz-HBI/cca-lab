@@ -19,7 +19,7 @@ The JSON response contains `rows`, `total`, `next_after`, `status` and `last_err
 
 Set **Default label after failed LLM attempts** in an experiment configuration to one of the task’s category IDs. Leave it empty to retain the previous failure behavior. For multi-label tasks the configured fallback is a singleton label set, not a new category or an inferred label combination.
 
-After an attempted LLM classification ends without a valid response, TextLab assigns that label with `status="fallback"` and `fallback_used=true`. Retries retain their existing semantics: `retries=2` allows three attempts; non-retryable HTTP errors terminate earlier. Raw responses, returned thinking and errors are preserved. No rationale or evidence is fabricated for the fallback.
+After an attempted LLM classification ends without a valid response, CCA-Lab assigns that label with `status="fallback"` and `fallback_used=true`. Retries retain their existing semantics: `retries=2` allows three attempts; non-retryable HTTP errors terminate earlier. Raw responses, returned thinking and errors are preserved. No rationale or evidence is fabricated for the fallback.
 
 Rejected empty/overlong inputs and unprocessed or cancelled rows do not receive fallback labels. A valid response always takes precedence over the fallback. Existing job snapshots are unchanged if you later change configuration settings.
 
@@ -56,9 +56,9 @@ API example:
 }
 ```
 
-`seeds` also accepts a comma-separated string. Each evaluation variant may optionally provide its own `seeds` list. Precedence is variant seeds → evaluation seeds → `query.seed`. Prediction requests accept top-level seeds alongside the existing `task_ids`, dataset, connection, text column and query fields.
+`seeds` also accepts a comma-separated string. Each evaluation variant may optionally provide its own `seeds` list. Precedence is variant seeds → evaluation seeds → `query.seed`. Prediction requests use `variants` with a connection and query per configuration, alongside `task_ids`, dataset and column mappings.
 
-The concrete seed is saved in each job's query snapshot and sent to the provider. Prediction exports now include `seed` and retain one row per input × task × configuration × seed. Labels remain separate categorical assignments; TextLab does not average labels or silently take a majority vote.
+The concrete seed is saved in each job's query snapshot and sent to the provider. Prediction exports now include `seed` and retain one row per input × task × configuration × seed. Labels remain separate categorical assignments; CCA-Lab does not average labels or silently take a majority vote.
 
 ## Means, standard deviations and error bars
 
@@ -74,4 +74,4 @@ Changing a seed does not guarantee that a particular server/model will produce d
 
 ## Upgrade
 
-See UPGRADE.md for the schema 6→7 upgrade and preservation of existing snapshots.
+See UPGRADE.md. No migration or translation of earlier application formats is included.

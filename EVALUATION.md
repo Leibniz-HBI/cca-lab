@@ -1,4 +1,4 @@
-# Evaluation in TextLab
+# Evaluation in CCA-Lab
 
 Evaluations support repeated seeds, grouped mean/SD tables, error-bar charts and explicitly scored fallback labels. [REPETITIONS.md](REPETITIONS.md) defines the updated scoring and repetition conventions.
 
@@ -10,12 +10,12 @@ Evaluations support repeated seeds, grouped mean/SD tables, error-bar charts and
 4. Open **Evaluations → New evaluation** and select the task and registered gold dataset.
 5. Choose connection, models, parameter values and Off/On/Compare both switches. **Generate configurations** creates the Cartesian product; review each configuration. Repeat with other connections if needed.
 6. Choose seeds, joint/binary strategy, batch size, context, output fields and execution settings in the same configuration builder. Inspect the query estimate and actual-data prompt preview. See EXPERIMENTS.md.
-7. Start the evaluation. Each configuration becomes a persistent job; variants run sequentially with their configured request concurrency.
+7. Start the evaluation. Each configuration becomes a persistent job; variants sharing a server run sequentially with their configured request concurrency; different servers can run simultaneously.
 8. Choose **Compare** to inspect quality, runtime, class metrics, confusion matrices, predictions and downloads. Pause/resume/cancel applies to eligible child runs. Each child also has an individual result view.
 
 Gold/task modes and label cardinalities are validated before any jobs are created. Single-label tasks require exactly one category ID. Multi-label tasks accept an empty set when no category applies; enable empty cells in the gold registration to use blank gold assignments. Gold labels are not added to prompts. Keep manually authored few-shot examples separate from evaluation examples to avoid leakage.
 
-Gold registrations preserve normalized labels and column mappings. Use Edit to change the name, source dataset, column mappings, label mode, separator or empty-cell policy. Unused registrations update in place; registrations referenced by evaluations are saved as new revisions, leaving existing evaluations and their gold data unchanged. Invalid edits roll back atomically. Default maximum: 50,000 gold rows (`TEXTLAB_MAX_EVAL_ROWS`) and 50 base configurations and 500 expanded runs per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
+Gold registrations preserve normalized labels and column mappings. Use Edit to change the name, source dataset, column mappings, label mode, separator or empty-cell policy. Unused registrations update in place; registrations referenced by evaluations are saved as new revisions, leaving existing evaluations and their gold data unchanged. Invalid edits roll back atomically. Default maximum: 50,000 gold rows (`CCA_LAB_MAX_EVAL_ROWS`) and 50 base configurations and 500 expanded runs per evaluation. Metric computation retains gold/prediction labels in memory, so increasing these limits increases memory requirements.
 
 ## Quality metrics
 
@@ -55,7 +55,7 @@ Quality and runtime appear together in the report, model comparison tables and c
 | `completion_tokens_per_second` | Reported output tokens / active seconds; unavailable token counts contribute 0 |
 | `timing_complete` | Whether the full active measurement is available |
 
-Per-document times allocate shared batch duration equally; they overlap with parallel requests and must not be summed as job wall time. No-work rates appear as n/a. Legacy jobs and uncleanly interrupted timing cannot provide reliable active/elapsed comparisons. Model startup, caching, API network overhead, context lengths, output budgets and concurrency can affect timings. TextLab reports observed application runtime, not isolated GPU inference time.
+Per-document times allocate shared batch duration equally; they overlap with parallel requests and must not be summed as job wall time. No-work rates appear as n/a. Uncleanly interrupted timing cannot provide reliable active/elapsed comparisons. Model startup, caching, API network overhead, context lengths, output budgets and concurrency can affect timings. CCA-Lab reports observed application runtime, not isolated GPU inference time.
 
 ## Saved outputs and reports
 
@@ -92,3 +92,5 @@ Interactive request schemas are at `/docs`. There is no automatic hyperparameter
 Single-run configurations display metric values without standard deviations or error bars. Repeated configurations retain means and sample SD. Raw report JSON retains the aggregate statistics.
 
 PUT /api/gold-sets/{id} accepts the same fields as registration and returns {id, revised_from}. A revised_from value indicates that a new registration was saved to preserve prior evaluations.
+
+Metric tables in the workspace and self-contained HTML reports support column sorting. Select a header to sort ascending, then again to sort descending; keyboard Enter/Space is supported. Means sort by their numeric value, unavailable values remain last, and sorting does not change stored results or exports.

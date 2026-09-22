@@ -6,11 +6,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from textlab.db import init, connect, uid
-from textlab.worker import tick
+from cca_lab.db import init, connect, uid
+from cca_lab.worker import tick
 
-with tempfile.TemporaryDirectory(prefix='textlab-benchmark-') as directory:
-    os.environ['TEXTLAB_DATA']=directory
+with tempfile.TemporaryDirectory(prefix='cca_lab-benchmark-') as directory:
+    os.environ['CCA_LAB_DATA']=directory
     init()
     path=Path(directory)/'million.csv'
     started=time.monotonic()
@@ -28,4 +28,4 @@ with tempfile.TemporaryDirectory(prefix='textlab-benchmark-') as directory:
         dataset=dict(db.execute('SELECT status,total FROM datasets WHERE id=?',(id,)).fetchone())
         count=db.execute('SELECT COUNT(*) FROM records WHERE dataset_id=?',(id,)).fetchone()[0]
     assert dataset['status']=='ready' and count==1_000_000
-    print(json.dumps(dict(rows=count,csv_bytes=path.stat().st_size,generation_seconds=round(generation,2),import_seconds=round(elapsed,2),peak_rss_mib=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,2),database_bytes=(Path(directory)/'textlab.sqlite').stat().st_size),indent=2))
+    print(json.dumps(dict(rows=count,csv_bytes=path.stat().st_size,generation_seconds=round(generation,2),import_seconds=round(elapsed,2),peak_rss_mib=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,2),database_bytes=(Path(directory)/'cca_lab.sqlite').stat().st_size),indent=2))

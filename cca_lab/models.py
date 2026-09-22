@@ -2,7 +2,7 @@ import re
 from typing import Literal, Annotated
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator, field_validator
+from pydantic import BaseModel, PrivateAttr, ConfigDict, Field, StringConstraints, model_validator, field_validator
 
 
 class StrictModel(BaseModel):
@@ -24,7 +24,7 @@ class Category(BaseModel):
 ThinkingLevel = Literal["default", "off", "on", "minimal", "low", "medium", "high", "max"]
 
 
-class ExecutionDefaults(StrictModel):
+class ExecutionOptions(StrictModel):
     model_config = ConfigDict(extra="forbid")
     rationale: bool = False
     alternatives: bool = False
@@ -37,7 +37,7 @@ class ExecutionDefaults(StrictModel):
 class Task(StrictModel):
     """CCA is the sole coding instrument; execution options are not CCA fields."""
     codebook: dict
-    execution_defaults: ExecutionDefaults = Field(default_factory=ExecutionDefaults)
+    _execution: ExecutionOptions = PrivateAttr(default_factory=ExecutionOptions)
 
     @field_validator("codebook")
     @classmethod
@@ -49,14 +49,6 @@ class Task(StrictModel):
             raise PydanticCustomError("cca_schema", "{message}", {
                 "message": errors[0]["path"] + ": " + errors[0]["message"], "issues": errors})
         return value
-
-    @model_validator(mode="after")
-    def check_defaults(self):
-        if self.default_label is not None and self.default_label not in {c.id for c in self.categories}:
-            from pydantic_core import PydanticCustomError
-            raise PydanticCustomError("fallback_category", "Default label must be a category ID", {
-                "issues": [{"path": "/execution_defaults/default_label", "message": "Choose an existing category ID."}]})
-        return self
 
     @property
     def name(self): return self.codebook["title"]
@@ -73,17 +65,17 @@ class Task(StrictModel):
     @property
     def examples(self): return self.codebook.get("examples", [])
     @property
-    def rationale(self): return self.execution_defaults.rationale
+    def rationale(self): return self._execution.rationale
     @property
-    def alternatives(self): return self.execution_defaults.alternatives
+    def alternatives(self): return self._execution.alternatives
     @property
-    def confidence(self): return self.execution_defaults.confidence
+    def confidence(self): return self._execution.confidence
     @property
-    def evidence(self): return self.execution_defaults.evidence
+    def evidence(self): return self._execution.evidence
     @property
-    def thinking(self): return self.execution_defaults.thinking
+    def thinking(self): return self._execution.thinking
     @property
-    def default_label(self): return self.execution_defaults.default_label
+    def default_label(self): return self._execution.default_label
 
 
 def validate_labels(labels, task):
@@ -121,7 +113,7 @@ class Profile(StrictModel):
 
 
 class Query(StrictModel):
-    prompt_protocol: Literal["cca-reference-v2", "experiment-v3"] = "experiment-v3"
+    prompt_protocol: Literal["experiment-v3"] = "experiment-v3"
     model: str = Field(min_length=1, max_length=300)
     concurrency: int = Field(default=4, ge=1, le=128)
     retries: int = Field(default=3, ge=0, le=10)
@@ -235,15 +227,13 @@ class NewPrediction(RepeatedRuns):
     name: str = Field(min_length=1, max_length=200)
     dataset_id: str
     task_ids: list[str] = Field(min_length=1, max_length=50)
-    profile_id: str | None = None
     text_column: str
     context_column: str | None = None
-    query: Query | None = None
     variants: list[Variant] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def configurations(self):
-        if not self.variants and not (self.profile_id and self.query):
+        if not self.variants and not self.source_evaluation_job_id:
             raise ValueError("Provide experiment configurations")
         return self
 

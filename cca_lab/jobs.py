@@ -3,14 +3,15 @@ import json
 import time
 
 from .db import dumps, uid
-from .models import Task, Profile
+from .models import Task, Profile, ExecutionOptions
 
 
 def resolved_task(task, query):
-    obj = task.model_dump()
-    for field in ("rationale", "evidence", "alternatives", "confidence", "thinking", "default_label"):
-        obj["execution_defaults"][field] = getattr(query, field)
-    return Task.model_validate(obj)
+    resolved = task.model_copy(deep=True)
+    resolved._execution = ExecutionOptions(**{field:getattr(query,field) for field in ExecutionOptions.model_fields})
+    if resolved.default_label is not None and resolved.default_label not in {c.id for c in resolved.categories}:
+        raise ValueError("Default label must be an existing category ID")
+    return resolved
 
 
 def snapshot_for(task_row, profile_row, query, text_column, context_column=None):
@@ -52,13 +53,3 @@ def validate_mapping(dataset, text_column, context_column):
     if context_column == text_column:
         raise ValueError('Context and text must use separate columns')
 
-
-def snapshot_query(snapshot):
-    from .models import Query
-    values=dict(snapshot['query'])
-    if snapshot.get('prompt_protocol','cca-reference-v2')=='cca-reference-v2':
-        defaults=snapshot['task'].get('execution_defaults',{})
-        for key in ('rationale','evidence','thinking','alternatives','confidence','default_label'):
-            if values.get(key) is None:
-                values[key]=defaults.get(key, 'default' if key=='thinking' else None if key=='default_label' else False)
-    return Query.model_validate(values)

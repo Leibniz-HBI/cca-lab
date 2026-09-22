@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 
 from .db import connect, dumps, root, uid
 from .models import NewPrediction, Variant, Query
-from .jobs import enqueue, snapshot_for, snapshot_query
+from .jobs import enqueue, snapshot_for
 from .runtime import runtime_metrics
 from .evaluation import TERMINAL
 from .eval_api import fetch
@@ -36,7 +36,7 @@ def create_prediction(spec: NewPrediction):
         try:validate_mapping(dataset,spec.text_column,spec.context_column)
         except ValueError as exc:raise HTTPException(422,str(exc)) from exc
         source=None
-        variants=spec.variants or [Variant(name=spec.query.model,profile_id=spec.profile_id,query=spec.query)]
+        variants=spec.variants
         if spec.source_evaluation_job_id:
             source=fetch(db,'jobs',spec.source_evaluation_job_id)
             if not db.execute('SELECT 1 FROM evaluation_runs WHERE job_id=?',(source['id'],)).fetchone():raise HTTPException(422,'Source must belong to an evaluation')
@@ -44,7 +44,7 @@ def create_prediction(spec: NewPrediction):
             saved=json.loads(source['snapshot'])
             if spec.task_ids != [saved['task_id']]:raise HTTPException(422,'Reuse requires the evaluated task')
             tasks=[{'id':saved['task_id'],'revision':saved['task_revision'],'spec':dumps(saved['task'])}]
-            variants=[Variant(name=saved.get('experiment_name','Evaluated configuration'),profile_id='snapshot',query=snapshot_query(saved))]
+            variants=[Variant(name=saved.get('experiment_name','Evaluated configuration'),profile_id='snapshot',query=Query.model_validate(saved['query']))]
         else:tasks=[fetch(db,'tasks',tid) for tid in spec.task_ids]
         if len(tasks)*sum(len(v.seeds or spec.seeds or [v.query.seed]) for v in variants)>500:
             raise HTTPException(422,'Maximum 500 total prediction runs')
@@ -206,7 +206,7 @@ def finalize_prediction():
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
         p=db.execute("""SELECT * FROM predictions p WHERE artifact_status='pending' AND EXISTS(SELECT 1 FROM prediction_runs r WHERE r.prediction_id=p.id)
-        AND NOT EXISTS(SELECT 1 FROM prediction_runs r JOIN jobs j ON j.id=r.job_id WHERE r.prediction_id=p.id AND j.status NOT IN ('completed','completed_with_errors','cancelled')) ORDER BY created LIMIT 1""").fetchone()
+        AND NOT EXISTS(SELECT 1 FROM prediction_runs r JOIN jobs j ON j.id=r.job_id WHERE r.prediction_id=p.id AND (j.status NOT IN ('completed','completed_with_errors','cancelled') OR j.active_since IS NOT NULL)) ORDER BY created LIMIT 1""").fetchone()
         if not p:return False
         db.execute("UPDATE predictions SET artifact_status='building' WHERE id=?",(p['id'],))
     try:

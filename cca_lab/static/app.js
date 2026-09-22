@@ -5,6 +5,18 @@ const num = n => Number(n || 0).toLocaleString('en-US');
 const statuses = {queued:'Queued',running:'Running',pausing:'Pausing',paused:'Paused',cancelling:'Cancelling',cancelled:'Cancelled',completed:'Completed',completed_with_errors:'Completed with errors',uploaded:'Waiting for import',importing:'Importing',ready:'Ready',failed:'Errors',evaluating:'Computing metrics',report_failed:'Report failed'};
 const badge = s => `<span class="badge ${esc(s)}">${esc(statuses[s] || s)}</span>`;
 let state = {tasks:[],datasets:[],profiles:[],jobs:[]}, page = '', edit = null, selectedJob = null, resultAfter = 0, loading = false;
+// A detail request may only update the dialog session that started it.
+let detailSession=0;
+function beginDetail(kind,id){
+ detailSession++;
+ selectedJob=kind==='job'?id:null;
+ selectedEvaluation=kind==='evaluation'?id:null;
+ selectedPrediction=kind==='prediction'?id:null;
+ $('#detail-title').textContent='Loading…';$('#detail-body').innerHTML='';
+ if(!$('#detail').open)$('#detail').showModal();
+ return detailSession;
+}
+function currentDetail(session){return session===detailSession&&$('#detail').open;}
 async function api(path, opts = {}) {
   const response = await fetch('/api'+path, { ...opts, headers:{...(opts.body ? {'Content-Type':'application/json'} : {}),...opts.headers} });
   if (!response.ok) { let body; try {body=await response.json()} catch {body={detail:response.statusText}}; const error=Error(typeof body.detail==='string' ? body.detail : (body.detail||[]).map(e=>e.msg).join('; '));error.details=Array.isArray(body.detail)?body.detail:[];throw error; }
@@ -21,7 +33,7 @@ async function refresh() {
   try {
     const [tasks,datasets,profiles,jobs,evaluations,goldSets,predictions,health] = await Promise.all(['/tasks','/datasets','/profiles','/jobs','/evaluations','/gold-sets','/predictions','/health'].map(p=>api(p)));
     state={tasks,datasets,profiles,jobs,evaluations,goldSets,predictions};
-    $('#app-version').textContent='TextLab / '+health.version;
+    $('#app-version').textContent='CCA-Lab / '+health.version;
     $('#health').textContent=health.worker_online?'Worker connected':'Worker offline';
     render();
     if(typeof selectedPrediction!=='undefined' && selectedPrediction && $('#detail').open) await showPrediction(selectedPrediction,false);
@@ -45,7 +57,7 @@ function renderJobs() {
 }
 function renderTasks() {
  $('#view').innerHTML=state.tasks.length?'<div class="cards">'+state.tasks.map(t=>{
- const c=t.spec.codebook;return '<article class="card"><div class="muted">'+esc(c.task.classification_mode.replace('_',' ').toUpperCase())+' · CODEBOOK '+esc(c.version)+' · REVISION '+t.revision+'</div><h2>'+esc(c.title)+'</h2><p>'+esc(c.description)+'</p><div class="chips">'+c.task.categories.map(c=>'<span class="chip">'+esc(c.id)+' · '+esc(c.label)+'</span>').join('')+'</div><p>'+(c.examples||[]).length+' coding examples</p><div class="actions"><button data-action="edit-task" data-id="'+t.id+'">Edit</button><button data-action="download-task" data-id="'+t.id+'">TextLab task JSON ↓</button><button data-action="cca-export" data-id="'+t.id+'">CCA JSON ↓</button><button data-action="workflow-evaluate-task" data-id="'+t.id+'">Evaluate this task →</button><button class="danger" data-action="delete-task" data-id="'+t.id+'">Delete</button></div></article>';
+ const c=t.spec.codebook;return '<article class="card"><div class="muted">'+esc(c.task.classification_mode.replace('_',' ').toUpperCase())+' · CODEBOOK '+esc(c.version)+' · REVISION '+t.revision+'</div><h2>'+esc(c.title)+'</h2><p>'+esc(c.description)+'</p><div class="chips">'+c.task.categories.map(c=>'<span class="chip">'+esc(c.id)+' · '+esc(c.label)+'</span>').join('')+'</div><p>'+(c.examples||[]).length+' coding examples</p><div class="actions"><button data-action="edit-task" data-id="'+t.id+'">Edit</button><button data-action="download-task" data-id="'+t.id+'">CCA-Lab task JSON ↓</button><button data-action="cca-export" data-id="'+t.id+'">CCA JSON ↓</button><button data-action="workflow-evaluate-task" data-id="'+t.id+'">Evaluate this task →</button><button class="danger" data-action="delete-task" data-id="'+t.id+'">Delete</button></div></article>';
  }).join('')+'</div>':empty('Reusable CCA codebooks','Define categories, coding instructions and examples.','new-task','Create task');
  $('#view').insertAdjacentHTML('afterbegin','<div class="task-import-panel"><div><strong>Bring your own codebook</strong><p>Import a CCA 0.1 JSON file to create a reusable classification task.</p></div><button data-action="cca-import">Import CCA codebook JSON</button><span id="cca-import-status" role="status"></span></div>');ccaStatus(ccaImportMessage);$('[data-action=cca-import]').disabled=ccaImportBusy;
 }
@@ -92,16 +104,19 @@ function uploadFile(f) {
  });
 }
 async function showJob(id,initial=true) {
- if(initial)selectedPrediction=null;
- const job=await api('/jobs/'+id);selectedJob=id;
+ const session=initial?beginDetail('job',id):detailSession;
+ const job=await api('/jobs/'+id);
+ if(!currentDetail(session)||selectedJob!==id)return;
  if(initial){resultAfter=0;$('#detail-title').textContent=job.name;$('#detail-body').innerHTML='<div id="job-live"></div><div id="request-log"></div><div id="job-results" class="spaced"></div><details id="job-error-panel"><summary>Error log</summary><p class="small">Includes failed attempts, even if a retry later succeeded. Refresh to see newly committed results.</p><div class="actions"><button data-action="errors-first">Load / refresh error log</button><button data-action="errors-next">Next 50</button><a class="button" id="errors-download">Download JSONL ↓</a></div><label><input type="checkbox" id="errors-recovered" checked>Include recovered retry errors</label><div id="job-errors"></div></details><details><summary>View / download job snapshot</summary><div class="actions"><button data-action="snapshot" data-id="'+id+'">Snapshot JSON ↓</button></div><pre>'+esc(JSON.stringify(job.snapshot,null,2))+'</pre></details>';$('#detail').showModal();}
  if(!$('#job-live'))return;
  const allowed=[];if(['queued','running'].includes(job.status))allowed.push(['pause','Pause']);if(job.status==='paused')allowed.push(['resume','Resume']);if(['queued','running','paused','pausing'].includes(job.status))allowed.push(['cancel','Cancel']);
  $('#job-live').innerHTML=`<div class="section-title">${badge(job.status)}<div class="actions">${allowed.map(([a,l])=>`<button data-action="control" data-control="${a}" data-id="${id}">${l}</button>`).join('')}</div></div><div class="stats"><div class="stat"><span>Processed</span><strong>${num(job.done)}</strong></div><div class="stat"><span>Total</span><strong>${num(job.total)}</strong></div><div class="stat"><span>Errors / fallbacks</span><strong>${num(job.failed)}</strong><small>${num(job.fallback_count)} fallback labels</small><button class="stat-action" data-action="errors-open" type="button">Inspect errors →</button></div><div class="stat"><span>API attempts</span><strong>${num(job.metrics.requests)}</strong></div></div><progress value="${job.done}" max="${job.total}" aria-label="Job progress"></progress><p class="small">Planned requests: ${num(job.query_count?.planned)} · Actual requests: ${num(job.metrics.requests)} · Completed component decisions: ${num(job.component_progress?.ok)} <button type="button" data-action="request-log" data-id="${id}">Inspect LLM requests</button></p><p class="muted">Active: ${metricNumber(job.runtime.active_seconds)} s · ${metricNumber(job.runtime.documents_per_second)} docs/s · ${esc(job.model)} · Ø ${job.metrics.avg_seconds.toFixed(2)} s per text (including retries) · ${num(job.metrics.prompt_tokens)} Input- / ${num(job.metrics.completion_tokens)} Output-Tokens</p>${job.last_error?`<p class="error">Last error: ${esc(job.last_error)}</p>`:''}<div class="actions">${['completed','completed_with_errors','cancelled'].includes(job.status)?['csv','jsonl','parquet'].map(fmt=>`<a class="button" href="/api/jobs/${id}/export?format=${fmt}">${fmt.toUpperCase()} ↓</a>`).join(''):'<span class="muted">Exports are available once the job has completed or cancellation has finished.</span>'}</div>`;
- if(initial){await loadResults();$('#errors-download').href='/api/jobs/'+id+'/errors?format=jsonl';}
+ if(initial){await loadResults();if(!currentDetail(session)||selectedJob!==id)return;$('#errors-download').href='/api/jobs/'+id+'/errors?format=jsonl';}
 }
 async function loadResults() {
- const rows=await api('/jobs/'+selectedJob+'/results?after='+resultAfter);
+ const session=detailSession,id=selectedJob,after=resultAfter;
+ const rows=await api('/jobs/'+id+'/results?after='+after);
+ if(!currentDetail(session)||selectedJob!==id||resultAfter!==after)return;
  $('#job-results').innerHTML=`<div class="section-title"><h3>Results</h3><div class="actions"><button data-action="results-first">First page / refresh</button>${rows.length?`<button data-action="results-next" data-after="${rows.at(-1).row_no}">Next</button>`:''}</div></div>`+(rows.length?`<div class="table-wrap"><table><thead><tr><th>Row</th><th>Source data</th><th>Labels</th><th>Confidence / alternatives</th><th>Status / Rationale</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.row_no}</td><td class="result-text">${esc(JSON.stringify(r.source).slice(0,650))}</td><td>${r.labels.map(esc).join(', ')||'—'}</td><td>${r.self_reported_confidence==null?'n/a':Number(r.self_reported_confidence).toFixed(2)}<span class="muted">${r.alternative_interpretations?.length||0} alternatives</span></td><td class="result-text">${esc(r.error||r.rationale||r.status)}<details><summary>Confidence / alternatives / evidence / thinking / attempts</summary><pre>${esc(JSON.stringify({component_results:r.component_results,evidence:r.evidence,candidate_interpretations:r.candidate_interpretations,rationale:r.rationale,labels:r.labels,self_reported_confidence:r.self_reported_confidence,alternative_interpretations:r.alternative_interpretations,thinking:r.thinking,attempt_outputs:r.attempt_outputs},null,2))}</pre></details></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No more results available.</p>');
 }
 function download(name,value) {const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -113,19 +128,19 @@ async function action(event) {
   if(a==='new-task'||a==='edit-task')taskEditor(id);if(a==='new-profile'||a==='edit-profile')profileEditor(id);if(a==='new-dataset')datasetEditor();if(a==='new-job')await jobEditor();
   if(a==='add-category')$('#categories').insertAdjacentHTML('beforeend',categoryHTML());if(a==='remove-category')el.closest('.category').remove();
   if(a==='prompt-preview')await previewTask();
-  if(a==='download-task')download('textlab-task.json',state.tasks.find(t=>t.id===id).spec);
+  if(a==='download-task')download('cca_lab-task.json',state.tasks.find(t=>t.id===id).spec);
   if(a==='delete-task'&&confirm('Delete this task? Existing job snapshots are preserved.')){await api('/tasks/'+id,{method:'DELETE'});await refresh();}
   if(a==='test-profile'){const r=await api('/profiles/'+id+'/models');toast(r.models.join(', ')||'No models available.');}
   if(a==='job-detail'){selectedEvaluation=null;await showJob(id);}
   if(a==='control'){if(el.dataset.control==='cancel'&&!confirm('Cancel this job? Completed results will be preserved.'))return;await api('/jobs/'+id+'/'+el.dataset.control,{method:'POST'});await refresh();}
   if(a==='results-next'){resultAfter=Number(el.dataset.after);await loadResults();}if(a==='results-first'){resultAfter=0;await loadResults();}
-  if(a==='snapshot')download('textlab-job-'+id+'.json',(await api('/jobs/'+id)).snapshot);
-  if(a==='dataset-preview'){selectedJob=null;const r=await api('/datasets/'+id+'/preview');$('#detail-title').textContent='Dataset preview · first 10 rows';$('#detail-body').innerHTML='<pre>'+esc(JSON.stringify(r,null,2))+'</pre>';$('#detail').showModal();}
+  if(a==='snapshot')download('cca_lab-job-'+id+'.json',(await api('/jobs/'+id)).snapshot);
+  if(a==='dataset-preview'){const session=beginDetail('preview',id);const r=await api('/datasets/'+id+'/preview');if(!currentDetail(session))return;$('#detail-title').textContent='Dataset preview · first 10 rows';$('#detail-body').innerHTML='<pre>'+esc(JSON.stringify(r,null,2))+'</pre>';$('#detail').showModal();}
  }catch(e){if($('#editor').open)$('#form-error').textContent=e.message;else toast(e.message);}
 }
 $('#primary').onclick=()=>({results:refresh,prediction:predictionEditor,jobs:jobEditor,tasks:taskEditor,datasets:datasetEditor,profiles:profileEditor,evaluations:evaluationEditor,gold:goldEditor}[page])();
 $('#editor-form').addEventListener('submit',submit);document.addEventListener('click',action);
 $('#editor-form').addEventListener('change',e=>{if(e.target.name==='dataset_id'){if(edit.kind==='gold')updateGoldColumns();else updateColumns();}});
-$('#detail').addEventListener('close',()=>selectedJob=null);
+$('#detail').addEventListener('close',()=>{detailSession++;selectedJob=null;});
 window.addEventListener('hashchange',render);
 refresh().catch(e=>toast(e.message));setInterval(()=>{if(!document.hidden)refresh().catch(e=>toast(e.message));},3000);

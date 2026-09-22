@@ -1,23 +1,23 @@
-from task_fixtures import task_spec, legacy_jobs
+from task_fixtures import task_spec, runtime_task
 import io
 import json
 import math
 import zipfile
 import pytest
 from fastapi.testclient import TestClient
-from textlab.api import app
-from textlab.db import connect, dumps
-from textlab.llm import parse_result, output_schema, classify
-from textlab.models import Task
-from textlab.uncertainty import confidence_metrics, agreement_summary, group_confidence
-from textlab.worker import tick
+from cca_lab.api import app
+from cca_lab.db import connect, dumps
+from cca_lab.llm import parse_result, output_schema
+from cca_lab.models import Task
+from cca_lab.uncertainty import confidence_metrics, agreement_summary, group_confidence
+from cca_lab.worker import tick
 TASK = task_spec(**{'name': 'Stance', 'instructions': 'Code stance.', 'categories': [{'label': 'A', 'definition': 'Alpha'}, {'label': 'B', 'definition': 'Beta'}], 'confidence': True, 'alternatives': True})
 
 def example():
     return {'candidate_interpretations': [{'labels': ['B'], 'justification': 'Plausible alternate reading.', 'supporting_quotes': ['Beta'], 'boundary_note': 'Speaker attribution is uncertain.'}, {'labels': ['A'], 'justification': 'Best fit.', 'supporting_quotes': ['Alpha'], 'boundary_note': 'Beta is a competing reading.'}], 'labels': ['A'], 'self_reported_confidence': 0.65}
 
 def test_structured_alternatives_and_confidence_validation():
-    task = Task(**TASK)
+    task = runtime_task(TASK,confidence=True,alternatives=True)
     obj = example()
     assert parse_result(dumps(obj), task, 'Alpha Beta') == {**obj, 'alternative_interpretations': obj['candidate_interpretations'][:1]}
     assert set(output_schema(task)['required']) == set(obj)
@@ -32,10 +32,10 @@ def test_structured_alternatives_and_confidence_validation():
     with pytest.raises(ValueError):
         parse_result(dumps(obj), task, 'Alpha only')
     with pytest.raises(ValueError):
-        parse_result(dumps(obj), Task(**task_spec(TASK, alternatives=False)), 'Alpha Beta')
+        parse_result(dumps(obj), runtime_task(TASK,confidence=True,alternatives=False), 'Alpha Beta')
 
 def test_multilabel_alternatives_are_sets_not_additional_labels():
-    task = Task(**task_spec(TASK, mode='multi'))
+    task = runtime_task(TASK,mode='multi',confidence=True,alternatives=True)
     obj = example()
     obj['labels'] = ['A', 'B']
     obj['candidate_interpretations'][1]['labels'] = ['A', 'B']
@@ -65,7 +65,7 @@ def test_agreement_excludes_fallback_and_retains_modal_ties():
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA', str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA', str(tmp_path))
     with TestClient(app) as c:
         yield c
 
@@ -97,7 +97,7 @@ def test_confidence_roundtrip_reports_exports_and_query_counts(client):
     assert 'self_reported_confidence' in client.get('/api/evaluations/' + e['id'] + '/export-predictions').text
     bundle = zipfile.ZipFile(io.BytesIO(client.get('/api/evaluations/' + e['id'] + '/report?format=zip').content))
     assert {'confidence.json', 'confidence-risk.png', 'agreement.csv'} <= set(bundle.namelist())
-    p = client.post('/api/predictions', json={'name': 'Pred', 'dataset_id': did, 'task_ids': [tid], 'profile_id': pid, 'text_column': 'text', 'seeds': [4, 5], 'query': {'model': 'm', 'retries': 1,'confidence':True,'alternatives':True}}).json()
+    p = client.post('/api/predictions', json={'name': 'Pred', 'dataset_id': did, 'task_ids': [tid], 'text_column': 'text', 'seeds': [4, 5], 'variants': [{'name': 'Configuration', 'profile_id': pid, 'query': {'model': 'm', 'retries': 1, 'confidence': True, 'alternatives': True}}]}).json()
     for _ in range(20):
         tick()
     info = client.get('/api/predictions/' + p['id']).json()
@@ -109,47 +109,7 @@ def test_confidence_roundtrip_reports_exports_and_query_counts(client):
     assert table['prediction.self_reported_confidence'].to_pylist() == [0.5] * 4
     assert client.get('/api/predictions/' + p['id'] + '/agreement?after=1').json()[0]['row_no'] == 2
 
-def test_fallback_confidence_unavailable_and_alternative_retry(monkeypatch):
-    import httpx
-    task = task_spec(TASK, default_label='B')
-    calls = []
 
-    def reply(request):
-        calls.append(request)
-        invalid = example()
-        invalid['candidate_interpretations'][0]['supporting_quotes'] = ['not in text']
-        return httpx.Response(200, json={'choices': [{'message': {'content': dumps(invalid)}}]})
-    snapshot = {'task': task, 'query': {'model': 'm', 'retries': 1,'confidence':True,'alternatives':True}, 'profile': {'name': 'Server', 'provider': 'openai', 'base_url': 'http://localhost'}}
-    monkeypatch.setattr('textlab.llm.time.sleep', lambda _: None)
-    with httpx.Client(transport=httpx.MockTransport(reply)) as c:
-        r = classify(snapshot, 'Alpha Beta', c)
-    assert len(calls) == 2 and r['status'] == 'fallback' and (r['labels'] == ['B'])
-    assert r.get('self_reported_confidence') is None and (not r.get('alternative_interpretations'))
-
-def test_alternative_persistence_and_numeric_job_parquet(client, monkeypatch):
-    import httpx
-    import pyarrow.parquet as pq
-    did, tid, pid, gid = setup(client)
-
-    def classified(snapshot, text, unused):
-        snapshot = {**snapshot, 'profile': {'name': 'Simulated API', 'provider': 'openai', 'base_url': 'http://localhost'}}
-
-        def response(req):
-            return httpx.Response(200, json={'choices': [{'message': {'content': dumps(example())}}]})
-        with httpx.Client(transport=httpx.MockTransport(response)) as transport:
-            return classify(snapshot, text, transport)
-    monkeypatch.setattr('textlab.worker.classify', classified)
-    jid = client.post('/api/jobs', json={'name': 'Roundtrip', 'dataset_id': did, 'task_id': tid, 'profile_id': pid, 'text_column': 'text', 'query': {'model': 'm'}}).json()['id']
-    legacy_jobs(confidence=True,alternatives=True)
-    for _ in range(5):
-        tick()
-    rows = client.get('/api/jobs/' + jid + '/results').json()
-    assert rows[0]['candidate_interpretations'] == example()['candidate_interpretations']
-    assert rows[0]['alternative_interpretations'] == example()['candidate_interpretations'][:1]
-    table = pq.read_table(io.BytesIO(client.get('/api/jobs/' + jid + '/export?format=parquet').content))
-    assert table['classification.self_reported_confidence'].to_pylist() == [0.65, 0.65]
-    assert json.loads(table['classification.candidate_interpretations'][0].as_py()) == example()['candidate_interpretations']
-    assert json.loads(table['classification.alternative_interpretations'][0].as_py()) == example()['candidate_interpretations'][:1]
 
 def test_agreement_deduplicates_same_seed_and_excludes_cancelled_runs(client):
     did, tid, pid, gid = setup(client)

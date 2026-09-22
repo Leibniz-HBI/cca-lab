@@ -1,6 +1,6 @@
 {
   "$schema": "https://cca-schema.org/schema/0.1/schema.json",
-  "id": "textlab-example-task",
+  "id": "cca_lab-example-task",
   "version": "1.0.0",
   "title": "Position zur Maßnahme",
   "description": "Beispielkodierbuch; Untersuchungsgegenstand vor produktivem Einsatz konkretisieren.",

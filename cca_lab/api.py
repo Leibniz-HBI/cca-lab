@@ -35,7 +35,7 @@ async def lifespan(app):
     log.info("api_stopped")
 
 
-app = FastAPI(title="TextLab", version=__version__, lifespan=lifespan)
+app = FastAPI(title="CCA-Lab", version=__version__, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -88,7 +88,7 @@ def tasks():
 def create_task(task: Task):
     id = uid()
     with connect() as db:
-        db.execute("INSERT INTO tasks VALUES(?,?,?,?)", (id, 1, task.model_dump_json(exclude={"execution_defaults"}), time.time()))
+        db.execute("INSERT INTO tasks VALUES(?,?,?,?)", (id, 1, task.model_dump_json(), time.time()))
     return {"id": id}
 
 
@@ -135,7 +135,7 @@ def edit_task(id: str, task: Task, revision: int):
     with connect() as db:
         get(db, "tasks", id)
         count = db.execute("UPDATE tasks SET spec=?,revision=revision+1,updated=? WHERE id=? AND revision=?", (
-            task.model_dump_json(exclude={"execution_defaults"}), time.time(), id, revision)).rowcount
+            task.model_dump_json(), time.time(), id, revision)).rowcount
         if not count:
             raise HTTPException(409, "Task has changed; reload before saving")
     return {"id": id}
@@ -170,7 +170,6 @@ class PreviewRequest(BaseModel):
 @app.post("/api/tasks/preview-request")
 def preview_request(spec: PreviewRequest):
     from .jobs import resolved_task
-    from .llm import request_body
     task = resolved_task(spec.task, spec.query)
     profile = Profile(name="Preview", provider=spec.provider)
     from .experiment import compile_request
@@ -224,7 +223,7 @@ def dataset_row(row):
 async def upload(request: Request, filename: str = "data.csv", delimiter: str = ",", encoding: Literal["utf-8-sig", "utf-8", "latin-1", "cp1252"] = "utf-8-sig"):
     if delimiter not in (",", ";", "\t", "|"):
         raise HTTPException(422, "Invalid delimiter")
-    limit = int(os.environ.get("TEXTLAB_MAX_UPLOAD_BYTES", 1024 ** 3))
+    limit = int(os.environ.get("CCA_LAB_MAX_UPLOAD_BYTES", 1024 ** 3))
     id = uid()
     path = root() / (id + ".csv")
     size = 0
@@ -404,7 +403,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
         dataset = get(db, "datasets", job["dataset_id"])
     if job["status"] not in ("completed", "completed_with_errors", "cancelled"):
         raise HTTPException(409, "Complete or cancel the job before exporting")
-    headers = {"Content-Disposition": f'attachment; filename="textlab-{id}.{format}"'}
+    headers = {"Content-Disposition": f'attachment; filename="cca_lab-{id}.{format}"'}
     if format == "jsonl":
         def json_chunks():
             batch = []
@@ -462,7 +461,7 @@ def export(id: str, format: Literal["csv", "jsonl", "parquet"] = "csv"):
     except BaseException:
         Path(path).unlink(missing_ok=True)
         raise
-    return FileResponse(path, filename=f"textlab-{id}.parquet", background=BackgroundTask(Path(path).unlink, missing_ok=True))
+    return FileResponse(path, filename=f"cca_lab-{id}.parquet", background=BackgroundTask(Path(path).unlink, missing_ok=True))
 
 
 from .eval_api import router as evaluation_router
@@ -508,8 +507,7 @@ def experiment_preview(spec: ExperimentPreview):
             source=get(db,'jobs',spec.source_evaluation_job_id);saved=json.loads(source['snapshot'])
             if not saved.get('evaluation_id') or source['status'] not in ('completed','completed_with_errors'):raise HTTPException(422,'Expected completed evaluation run')
             task={'id':saved['task_id'],'revision':saved['task_revision'],'spec':dumps(saved['task'])};profile={'spec':dumps(saved['profile'])}
-            from .jobs import snapshot_query
-            spec.query=snapshot_query(saved).model_copy(update={'prompt_protocol':'experiment-v3'})
+            spec.query=Query.model_validate(saved['query']).model_copy(update={'prompt_protocol':'experiment-v3'})
         else:
             task=get(db,'tasks',spec.task_id);profile=get(db,'profiles',spec.profile_id)
         try:

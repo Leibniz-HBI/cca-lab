@@ -1,13 +1,13 @@
 x-common: &common
   build: .
-  image: textlab:local
+  image: cca-lab:local
   restart: unless-stopped
   init: true
   env_file: .env
   environment:
-    TEXTLAB_DATA: /data
+    CCA_LAB_DATA: /data
   volumes:
-    - textlab-data:/data
+    - cca-lab-data:/data
   extra_hosts:
     - "host.docker.internal:host-gateway"
   security_opt:
@@ -27,8 +27,8 @@ services:
       retries: 3
   worker:
     <<: *common
-    command: ["python", "-m", "textlab.worker"]
+    command: ["python", "-m", "cca_lab.worker"]
     stop_grace_period: 60s
 
 volumes:
-  textlab-data:
+  cca-lab-data:

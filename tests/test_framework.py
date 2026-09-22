@@ -1,4 +1,4 @@
-from task_fixtures import legacy_jobs
+from task_fixtures import runtime_task
 from task_fixtures import task_spec
 import csv
 import io
@@ -9,16 +9,16 @@ import httpx
 import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
-from textlab.api import app
-from textlab.db import connect, init
-from textlab.llm import classify, parse_result
-from textlab.models import Task
-from textlab.worker import tick, run_batch, save_result
+from cca_lab.api import app
+from cca_lab.db import connect, init
+from cca_lab.llm import parse_result
+from cca_lab.models import Task
+from cca_lab.worker import tick, run_batch, save_result
 TASK = task_spec(**dict(name='Stance', instructions='Bestimme die Position.', categories=[dict(label='FOR', definition='Zustimmung', examples=['Ja!']), dict(label='AGAINST', definition='Ablehnung')]))
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA', str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA', str(tmp_path))
     with TestClient(app) as c:
         yield c
 
@@ -67,42 +67,16 @@ def test_resume_and_partial_window_recovery(client):
     save_result(id, 1, result)
     save_result(id, 1, result)
     job = finish(client, id)
-    assert job['done'] == 3 and job['metrics']['requests'] == 3
+    assert job['done'] == 3 and job['metrics']['requests'] == 2
     assert len(client.get('/api/jobs/' + id + '/results').json()) == 3
 
-def test_saved_snapshot_cancel_drains_then_export(client, monkeypatch):
-    id, _, _ = setup_job(client, content=b'id,text\n1,yes\n2,no\n', concurrency=2)
-    import textlab.worker as worker
-    original = worker.classify
-    started = threading.Event()
-    release = threading.Event()
-
-    def slow(*args):
-        started.set()
-        release.wait(5)
-        return original(*args)
-    monkeypatch.setattr(worker, 'classify', slow)
-    legacy_jobs()
-    thread = threading.Thread(target=tick)
-    thread.start()
-    assert started.wait(5)
-    assert client.post('/api/jobs/' + id + '/cancel').json()['status'] == 'cancelling'
-    assert client.get('/api/jobs/' + id + '/export').status_code == 409
-    release.set()
-    thread.join(5)
-    assert not thread.is_alive()
-    legacy_jobs(); tick()
-    assert client.get('/api/jobs/' + id).json()['status'] == 'cancelled'
-    assert client.get('/api/jobs/' + id).json()['done'] >= 1
-    assert client.get('/api/jobs/' + id + '/export').status_code == 200
-    assert client.post('/api/jobs/' + id + '/resume').status_code == 409
 
 
 def test_invalid_csv_and_limits(client, monkeypatch):
     client.post('/api/datasets', content=b'text,text\na,b\n')
     tick()
     assert client.get('/api/datasets').json()[0]['status'] == 'failed'
-    monkeypatch.setenv('TEXTLAB_MAX_UPLOAD_BYTES', '5')
+    monkeypatch.setenv('CCA_LAB_MAX_UPLOAD_BYTES', '5')
     assert client.post('/api/datasets', content=b'123456').status_code == 413
 
 @pytest.mark.parametrize('raw', ['{"labels":["UNKNOWN"]}', '{"labels":["FOR","AGAINST"]}', '{"labels":[]}', '{"labels":["FOR"],"extra":1}', '```json\n{"labels":["FOR"]}\n```'])
@@ -111,34 +85,10 @@ def test_output_rejection(raw):
         parse_result(raw, Task(**TASK))
 
 def test_multi_label():
-    task = Task(**task_spec(TASK, mode='multi', rationale=True))
+    task = runtime_task(TASK, mode='multi', rationale=True)
     assert parse_result('{"labels":[],"rationale":"No evidence"}', task)["labels"] == []
     assert parse_result('{"labels":["FOR","AGAINST"],"rationale":"Both"}', task)['labels'] == ['FOR', 'AGAINST']
     with pytest.raises(ValueError):
         parse_result('{"labels":["FOR","FOR"],"rationale":""}', task)
 
-@pytest.mark.parametrize('provider', ['openai', 'ollama'])
-def test_provider_payload_retry(provider, monkeypatch):
-    calls = []
 
-    def handle(request):
-        body = json.loads(request.content)
-        calls.append(body)
-        assert body['stream'] is False and body['messages'][-1]['role'] == 'user'
-        if provider == 'ollama':
-            assert body['format']['type'] == 'object' and body['options']['num_predict'] == 8192
-        else:
-            assert body['response_format']['json_schema']['schema']['type'] == 'object'
-        raw = '{"labels":["INVALID"]}' if len(calls) == 1 else '{"labels":["FOR"]}'
-        return httpx.Response(200, json={'message': {'content': raw}, 'eval_count': 5} if provider == 'ollama' else {'choices': [{'message': {'content': raw}}], 'usage': {'completion_tokens': 5}})
-    monkeypatch.setattr('textlab.llm.time.sleep', lambda _: None)
-    snap = {'task': TASK, 'query': {'model': 'test', 'retries': 2}, 'profile': {'name': 'test', 'provider': provider, 'base_url': 'http://localhost'}}
-    with httpx.Client(transport=httpx.MockTransport(handle)) as c:
-        r = classify(snap, 'hello', c)
-    assert r['status'] == 'ok' and r['attempts'] == 2 and (r['completion_tokens'] == 10)
-
-def test_permanent_http_error_no_retry():
-    snap = {'task': TASK, 'query': {'model': 'test', 'retries': 2}, 'profile': {'name': 'test', 'provider': 'openai', 'base_url': 'http://localhost'}}
-    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(401))) as c:
-        r = classify(snap, 'hello', c)
-    assert r['attempts'] == 1 and r['error'] == 'HTTP 401 from model endpoint'

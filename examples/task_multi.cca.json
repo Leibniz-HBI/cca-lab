@@ -1,6 +1,6 @@
 {
   "$schema": "https://cca-schema.org/schema/0.1/schema.json",
-  "id": "textlab-example-task-multi",
+  "id": "cca_lab-example-task-multi",
   "version": "1.0.0",
   "title": "Zustimmung und Sicherheitsaspekte",
   "description": "Beispielkodierbuch für Zustimmung und Sicherheitsaspekte.",

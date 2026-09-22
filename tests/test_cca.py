@@ -2,10 +2,10 @@ import copy
 import json
 import pytest
 from fastapi.testclient import TestClient
-from textlab.api import app
-from textlab.cca import SCHEMA, validate_codebook, from_codebook, to_codebook
-from textlab.llm import messages
-from textlab.models import Query, Task
+from cca_lab.api import app
+from cca_lab.cca import SCHEMA, validate_codebook, from_codebook, to_codebook
+from cca_lab.llm import messages
+from cca_lab.models import Query, Task
 
 
 def codebook():
@@ -19,7 +19,7 @@ def codebook():
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA',str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA',str(tmp_path))
     with TestClient(app) as c:yield c
 
 
@@ -28,11 +28,11 @@ def test_roundtrip_and_execution_semantics(client):
     assert response.status_code==201,response.text
     id=response.json()['id'];task=client.get('/api/tasks').json()[0]['spec']
     assert task['codebook']==doc and set(task)=={'codebook'}
-    prompt=messages(Task(**task),Query(model='mock'),'Wonderful.')
+    prompt=messages(Task(**task),Query(model='mock',use_context=True),'Wonderful.')
     for value in ['sentence','Explicit praise','Irony','Check attribution.','Positive','Use the preceding sentence']:
         assert value in prompt[0]['content']
-    assert 'The speaker welcomed the result.' in prompt[0]['content']
-    assert '"101"' in prompt[0]['content']
+    assert 'The speaker welcomed the result.' in prompt[1]['content']
+    assert '101' in prompt[0]['content']
     assert client.get('/api/tasks/'+id+'/export-cca').json()==doc
     task['codebook']['task']['categories'][0]['definition']='Updated operational definition'
     task['codebook']['task']['categories'][0]['inclusion_criteria']=['Updated criterion']
@@ -65,14 +65,14 @@ def test_multilabel_single_category_and_empty_policy(client):
     d=codebook();d['task']['classification_mode']='multi_label';d['examples'][0]['labels']=['101','102']
     task=from_codebook(d);assert task.mode=='multi'
     assert to_codebook(task)==d
-    from textlab.models import validate_labels
+    from cca_lab.models import validate_labels
     validate_labels([],task)
     d=codebook();d['task']['categories']=d['task']['categories'][:1]
     assert client.post('/api/tasks/import-cca',json=d).status_code==201
 
 
 def test_native_export_and_import(client):
-    t=Task(codebook=codebook(),execution_defaults={"thinking":"high","evidence":True})
+    t=Task(codebook=codebook())
     id=client.post('/api/tasks',json=t.model_dump()).json()['id']
     out=client.get('/api/tasks/'+id+'/export-cca')
     assert out.status_code==200 and out.json()==codebook()
@@ -93,7 +93,7 @@ def test_bom_duplicate_keys_invalid_json_and_upload_limit(client):
 
 def test_import_diagnostics_correlate_without_payload(client, caplog):
     import logging
-    caplog.set_level(logging.DEBUG, logger="textlab")
+    caplog.set_level(logging.DEBUG, logger="cca_lab")
     doc = codebook()
     doc["description"] = "PRIVATE_CODEBOOK_CONTENT"
     response = client.post("/api/tasks/import-cca", json=doc)
@@ -137,7 +137,7 @@ def test_unsupported_task_fields_and_fallback_uses_id(client):
                    {'codebook':codebook(),'execution_defaults':{'allow_empty':True}},
                    {'codebook':codebook(),'execution_defaults':{'default_label':'Positive'}}]:
         assert client.post('/api/tasks',json=invalid).status_code==422
-    assert client.post('/api/tasks',json={'codebook':codebook(),'execution_defaults':{'default_label':'101'}}).status_code==201
+    assert client.post('/api/tasks',json={'codebook':codebook(),'execution_defaults':{'default_label':'101'}}).status_code==422
 
 
 def test_schema_roundtrip_is_lossless_and_not_limited_to_old_task_bounds(client):
@@ -145,7 +145,7 @@ def test_schema_roundtrip_is_lossless_and_not_limited_to_old_task_bounds(client)
     doc['task']['categories']=[{'id':str(i),'label':'Category '+str(i),'definition':'Definition'} for i in range(205)]
     doc['examples']=[{'text':'  Whitespace matters\n','labels':['101'],'explanation':'Explain\nwith lines'}]
     doc['title']='Long title '+('x'*210)
-    created=client.post('/api/tasks',json={'codebook':doc,'execution_defaults':{'evidence':True}})
+    created=client.post('/api/tasks',json={'codebook':doc})
     assert created.status_code==201,created.text
     id=created.json()['id']
     assert client.get('/api/tasks/'+id+'/export-cca').json()==doc
@@ -155,24 +155,24 @@ def test_schema_roundtrip_is_lossless_and_not_limited_to_old_task_bounds(client)
 
 
 def test_canonical_fewshot_cap_and_execution_override():
-    from textlab.jobs import resolved_task
+    from cca_lab.jobs import resolved_task
     d=codebook();d['task']['classification_mode']='multi_label'
     d['examples']=[
         {'text':'Both','labels':['101','102'],'explanation':'Mixed tone'},
         {'text':'Positive','labels':['101']},
         {'text':'Negative','labels':['102']}]
-    task=Task(codebook=d,execution_defaults={'rationale':True,'thinking':'high'})
+    task=resolved_task(Task(codebook=d),Query(model='m',rationale=True,thinking='high'))
     resolved=resolved_task(task,Query(model='m',rationale=False,thinking='off'))
     assert resolved.codebook==task.codebook and task.thinking=='high'
     assert resolved.thinking=='off' and not resolved.rationale
     prompt=messages(task,Query(model='m',examples_per_category=1),'Input')
-    assert len(prompt)==2 and 'Both' in prompt[0]['content'] and '"text": "Negative"' not in prompt[0]['content']
+    assert len(prompt)==4 and json.loads(prompt[1]['content'])['samples'][0]['text']=='Both'
     assert len(messages(task,Query(model='m',examples_per_category=0),'Input'))==2
 
 
 def test_bundled_examples_are_ready_for_fresh_install():
     from pathlib import Path
-    from textlab.models import validate_labels
+    from cca_lab.models import validate_labels
     import csv
     folder=Path(__file__).parents[1]/'examples'
     for name in ['task','task_multi']:

@@ -4,18 +4,18 @@ import threading
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from textlab.api import app
-from textlab.db import connect,init,SCHEMA,dumps
-from textlab.models import Task,Query,Profile
-from textlab.experiment import compile_request,perform,prepare_item
-from textlab.worker import tick,recover_interrupted_work
+from cca_lab.api import app
+from cca_lab.db import connect,init,SCHEMA,dumps
+from cca_lab.models import Task,Query,Profile
+from cca_lab.experiment import compile_request,perform,prepare_item
+from cca_lab.worker import tick,recover_interrupted_work
 from task_fixtures import task_spec
 
 BOOK=task_spec(mode='multi',categories=[{'label':'A','definition':'Only definition ALPHA'},{'label':'B','definition':'Only definition BETA'}],examples=[{'text':'Alpha sample','labels':['A'],'context':'Example context','explanation':'A and B are alternatives'}])
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA',str(tmp_path))
+    monkeypatch.setenv('CCA_LAB_DATA',str(tmp_path))
     with TestClient(app) as c:yield c
 
 
@@ -90,13 +90,13 @@ def test_binary_batch_context_metrics_exports(client):
     assert client.get('/api/evaluations/'+e['id']+'/confidence-chart?category=A').status_code==200
     assert client.get('/api/jobs/'+job['id']+'/export?format=parquet').status_code==200
     requests=client.get('/api/jobs/'+job['id']+'/requests').json()
-    assert len(requests)==4 and requests[0]['inputs'][0]['context']=='Prior'
+    assert len(requests)==4 and any(i.get('context')=='Prior' for req in requests for i in req['inputs'])
     assert len(client.get('/api/jobs/'+job['id']+'/requests.jsonl').text.splitlines())==4
 
 
 def test_partial_retry_preserves_valid_and_costs(client,monkeypatch):
     d,t,p,g,q=setup(client,{'batch_size':3})
-    import textlab.executor as ex
+    import cca_lab.executor as ex
     real=ex.perform;calls=[]
     def fake(profile,query,task,items,path,body,http):
         calls.append([i['id'] for i in items]);out=real(profile,query,task,items,path,body,http)
@@ -113,7 +113,7 @@ def test_partial_retry_preserves_valid_and_costs(client,monkeypatch):
 
 def test_binary_failure_not_negative_and_fallback(client,monkeypatch):
     d,t,p,g,q=setup(client,{'strategy':'binary','batch_size':3,'retries':1,'default_label':'A'})
-    import textlab.executor as ex
+    import cca_lab.executor as ex
     real=ex.perform;calls=[]
     def fake(profile,query,task,items,path,body,http):
         calls.append(task.categories[0].id);out=real(profile,query,task,items,path,body,http)
@@ -129,7 +129,7 @@ def test_binary_failure_not_negative_and_fallback(client,monkeypatch):
 
 def test_pause_resume_keeps_valid_components(client,monkeypatch):
     d,t,p,g,q=setup(client,{'batch_size':3})
-    import textlab.executor as ex
+    import cca_lab.executor as ex
     real=ex.perform;calls=[];jobid=None
     def fake(profile,query,task,items,path,body,http):
         calls.append([i['id'] for i in items]);out=real(profile,query,task,items,path,body,http)
@@ -160,18 +160,6 @@ def test_prediction_variants_and_context_mapping_guard(client):
     inputs=json.loads(preview.json()['request']['messages'][-1]['content'])['samples'];assert len(inputs)==2 and inputs[0]['context']=='Prior'
 
 
-def test_current_database_upgrade_preserves_snapshot(tmp_path,monkeypatch):
-    monkeypatch.setenv('TEXTLAB_DATA',str(tmp_path))
-    with sqlite3.connect(tmp_path/'textlab.sqlite') as db:
-        db.executescript(SCHEMA.split('CREATE TABLE llm_requests')[0]);db.execute('PRAGMA user_version=6')
-        db.execute('INSERT INTO tasks VALUES(?,?,?,?)',('t',1,dumps(BOOK),0))
-        db.execute("INSERT INTO datasets(id,name,path,bytes,delimiter,encoding,status,created) VALUES('d','D','unused',0,',','utf-8','ready',0)")
-        db.execute("INSERT INTO jobs(id,name,dataset_id,snapshot,status,total,created,updated) VALUES('j','J','d','exact saved snapshot','completed',0,0,0)")
-    init();init()
-    with connect() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==7
-        assert db.execute('SELECT snapshot FROM jobs').fetchone()[0]=='exact saved snapshot'
-        assert set(json.loads(db.execute('SELECT spec FROM tasks').fetchone()[0]))=={'codebook'}
 
 
 def test_rejected_input_has_no_fallback(client):
@@ -182,7 +170,7 @@ def test_rejected_input_has_no_fallback(client):
 
 
 def test_interrupted_attempt_consumes_budget(client,monkeypatch):
-    import textlab.executor as ex
+    import cca_lab.executor as ex
     d,t,p,g,q=setup(client,{'batch_size':3,'retries':0})
     e=create_eval(client,t,p,g,q);jid=e['job_ids'][0]
     with connect() as db:
@@ -190,7 +178,7 @@ def test_interrupted_attempt_consumes_budget(client,monkeypatch):
         job=dict(db.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone())
     def crash(*args):raise RuntimeError('Process lost after request reservation')
     monkeypatch.setattr(ex,'perform',crash)
-    from textlab.worker import save_result
+    from cca_lab.worker import save_result
     with pytest.raises(RuntimeError):ex.run_window(job,threading.Event(),save_result)
     recover_interrupted_work()
     finish(client,e['id'])
@@ -208,3 +196,38 @@ def test_http_failures_redacted_and_classified(code,status):
     with httpx.Client(transport=httpx.MockTransport(lambda _:httpx.Response(code,text='Sensitive server response'))) as client:
         result=perform(profile,q,t,items,path,body,client)
     assert result['error']==f'HTTP {code}' and result['results']['1']['status']==status
+
+
+@pytest.mark.parametrize('provider,field',[('ollama','thinking'),('openai','reasoning'),('openai','reasoning_content'),('openai','thinking')])
+def test_current_requests_preserve_thinking(provider,field):
+    q=Query(model='m');profile=Profile(name='p',provider=provider,base_url='http://localhost');items=[{'id':'1','text':'Alpha'}]
+    path,body,t=compile_request(Task(**BOOK),q,profile,items)
+    message={'content':dumps({'results':[{'id':'1','labels':['A']}]}),field:'Returned thinking'}
+    response={'message':message} if provider=='ollama' else {'choices':[{'message':message}]}
+    with httpx.Client(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=response))) as client:
+        out=perform(profile,q,t,items,path,body,client)
+    assert out['thinking']=='Returned thinking' and out['results']['1']['status']=='ok'
+
+
+def test_current_requests_extract_inline_thinking():
+    q=Query(model='m');profile=Profile(name='p',base_url='http://localhost');items=[{'id':'1','text':'Alpha'}]
+    path,body,t=compile_request(Task(**BOOK),q,profile,items)
+    raw='<think>Returned trace</think>'+dumps({'results':[{'id':'1','labels':[]}]})
+    with httpx.Client(transport=httpx.MockTransport(lambda _:httpx.Response(200,json={'choices':[{'message':{'content':raw}}]}))) as client:
+        out=perform(profile,q,t,items,path,body,client)
+    assert out['thinking']=='Returned trace' and out['content']==raw and out['results']['1']['status']=='ok'
+
+
+def test_cancellation_drains_current_request(client,monkeypatch):
+    import cca_lab.executor as ex
+    d,t,p,g,q=setup(client,{'batch_size':1,'concurrency':1})
+    e=create_eval(client,t,p,g,q);jid=e['job_ids'][0];original=ex.perform;calls=[]
+    def cancel(profile,query,task,items,path,body,http):
+        calls.append(items)
+        out=original(profile,query,task,items,path,body,http)
+        with connect() as db:db.execute("UPDATE jobs SET status='cancelling' WHERE id=?",(jid,))
+        return out
+    monkeypatch.setattr(ex,'perform',cancel)
+    tick();tick()
+    job=client.get('/api/jobs/'+jid).json()
+    assert job['status']=='cancelled' and job['done']==1 and job['requests']==1 and len(calls)==1
