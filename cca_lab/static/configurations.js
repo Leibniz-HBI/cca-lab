@@ -21,7 +21,7 @@ const experimentFields=[
  ['Execution and validation',[
  ['concurrency','Concurrent requests','4','Maximum requests in flight within a job. Jobs on separate servers can run simultaneously; jobs sharing a server are queued.'],
  ['retries','Retries','3','Additional attempts per unresolved document/category decision after its initial request.'],
- ['max_tokens','Maximum output tokens','8192','Output budget for the entire request, including all batched results; thinking may consume this budget depending on the server.'],
+ ['max_tokens','Maximum output tokens','8192','Initial output budget for the entire request, including all batched results and server-counted thinking. Retries after token exhaustion automatically double the budget, within the configured retry count. Server limits still apply.'],
  ['structured_output','Structured output','json_schema','json_schema uses native constraints; json_object requests JSON; none uses prompt instructions plus local validation.'],
  ['max_text_chars','Maximum text characters','30000','Per-document target-text limit.'],
  ['max_context_chars','Maximum context characters','30000','Per-document context limit, separate from the target text.'],

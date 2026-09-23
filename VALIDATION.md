@@ -1,3 +1,7 @@
+# Validation — CCA-Lab 0.14.2
+
+44 targeted Python tests passed. New tests cover OpenAI-compatible and Ollama length-stop responses with null or incomplete JSON, explicit missing-content errors, per-document doubling beyond the initial UI maximum, ordinary retries without doubling, saved request budgets, pause/resume persistence and retry exhaustion. Model responses are mocked.
+
 # Validation — CCA-Lab 0.14.1
 
 37 targeted Python tests passed (error statistics, minor fixes and experiment execution). Statistics tests cover repeated errors, recovered retries, distinct document counts, final failures, fallbacks, pre-request input errors, empty runs and isolation between jobs. A JavaScript rendering check verifies sortable columns and HTML escaping. The last-error line is replaced only in the individual-run summary; detailed logs remain available.

@@ -13,6 +13,15 @@ log=logging.getLogger("cca_lab.executor")
 
 def request_once(job, snapshot, category, items, client):
     q=Query(**snapshot['query']);task=Task(**snapshot['task']);profile=Profile(**snapshot['profile'])
+    # Per-component retry budgets survive pauses/restarts and stay local to this batch.
+    with connect() as db:
+        budgets=[]
+        for item in items:
+            row=db.execute('SELECT result FROM components WHERE job_id=? AND row_no=? AND category=?',
+                           (job['id'],int(item['id']),category)).fetchone()
+            previous=json.loads(row['result'] or '{}') if row else {}
+            budgets.append(previous.get('retry_max_tokens',q.max_tokens))
+    q=q.model_copy(update={'max_tokens':max([q.max_tokens,*budgets])})
     path,body,target=compile_request(task,q,profile,items,category)
     rid=uid()
     with connect() as db:
@@ -37,6 +46,11 @@ def request_once(job, snapshot, category, items, client):
             status=result['status']
             if status!='ok' and attempts>=q.retries+1:status='failed'
             result['status']=status
+            if status!='ok':
+                result['retry_max_tokens']=q.max_tokens * (2 if out.get('output_limit_reached') else 1)
+                if status=='pending' and out.get('output_limit_reached'):
+                    log.info('output_budget_retry job_id=%s row=%s category=%s max_tokens=%s next_max_tokens=%s',
+                             job['id'],item['id'],category,q.max_tokens,result['retry_max_tokens'])
             db.execute('UPDATE components SET status=?,result=? WHERE job_id=? AND row_no=? AND category=?',(status,dumps(result),job['id'],int(item['id']),category))
         db.execute('UPDATE jobs SET prompt_tokens=prompt_tokens+?,completion_tokens=completion_tokens+?,total_seconds=total_seconds+?,updated=? WHERE id=?',(out['prompt_tokens'],out['completion_tokens'],out['seconds'],time.time(),job['id']))
 
@@ -53,7 +67,7 @@ def aggregate(db, job, snapshot, row_no, categories):
     q=Query(**snapshot['query']);parts=[json.loads(rows[c]['result'] or '{}') for c in categories]
     failed=any(r['status']!='ok' for r in rows.values())
     result=dict(labels=[],rationale=None,status='failed' if failed else 'ok',error=None,raw=None,attempts=0,seconds=0,prompt_tokens=0,completion_tokens=0,evidence=[],thinking=None,attempt_outputs=[],candidate_interpretations=[],alternative_interpretations=[],self_reported_confidence=None)
-    if len(categories)==1 and categories[0]=='':result.update({k:v for k,v in parts[0].items() if k not in ('status','error')})
+    if len(categories)==1 and categories[0]=='':result.update({k:v for k,v in parts[0].items() if k not in ('status','error','retry_max_tokens')})
     else:
         result['labels']=[c for c,part in zip(categories,parts) if c in part.get('labels',[])]
         if q.rationale:result['rationale']='\n\n'.join(f'{c}: {part.get("rationale", "No valid decision")}' for c,part in zip(categories,parts))

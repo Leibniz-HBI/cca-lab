@@ -51,3 +51,9 @@ User/assistant roles uses batched example dialogue turns. Single system message 
 ## Readable requests and JSON
 
 Prompt previews, request logs, snapshots and JSON result/error details share a viewer. Readable mode displays structured fields and decoded string line breaks; JSON strings nested inside messages/responses are expanded for reading. Check **JSON mode** for syntax-highlighted, valid JSON, including the escapes needed for exact string representation. The viewer does not alter saved requests, responses or downloads and escapes HTML in source text. It is read-only; JSON editing fields remain plain editable JSON.
+
+## Automatic output-budget retries (0.14.2)
+
+If a response fails and the server reports a length stop (or token usage reaches the output budget), the next attempt doubles the current maximum output tokens. A thinking-only empty response without finish metadata is also treated as suspected exhaustion. Empty responses without such evidence receive an explicit missing-content error and ordinary retries. An already valid response is accepted even if the server reports a length stop.
+
+The configured maximum is the initial budget. Increases apply to unresolved document/category decisions; a retry batch uses the largest required budget among its items. Further truncations double it again; other failures retain the current budget. Retries remain bounded by the configured retry count, and provider context/output limits still apply. Every actual request records its token budget; output logs retain finish reasons and exhaustion flags. Pending budgets survive pause/restart, while the original job configuration remains unchanged.

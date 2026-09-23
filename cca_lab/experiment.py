@@ -110,22 +110,34 @@ def compile_request(task, query, profile, items, category=''):
 
 
 def perform(profile, query, task, items, path, body, client):
-    started=time.monotonic();out={'content':None,'thinking':None,'error':None,'prompt_tokens':0,'completion_tokens':0,'seconds':0}
+    started=time.monotonic();out={'content':None,'thinking':None,'error':None,'prompt_tokens':0,'completion_tokens':0,'seconds':0,'finish_reason':None,'output_limit_reached':False,'max_tokens':query.max_tokens}
     try:
         if profile.provider=='mock':
             out['content']=dumps({'results':[{'id':i['id'],**mock_response(task,i['text'],[task.categories[0].id],'Demo: first category; no semantic classification.',.5)} for i in items]})
         else:
             response=client.post(profile.base_url+path,json=body,headers=headers(profile),timeout=profile.timeout);response.raise_for_status();data=response.json()
             if profile.provider=='ollama':
+                out['finish_reason']=data.get('done_reason')
                 msg=data['message'];out['prompt_tokens']=data.get('prompt_eval_count') or 0;out['completion_tokens']=data.get('eval_count') or 0
             else:
+                out['finish_reason']=data['choices'][0].get('finish_reason')
                 msg=data['choices'][0]['message'];usage=data.get('usage') or {};out['prompt_tokens']=usage.get('prompt_tokens') or 0;out['completion_tokens']=usage.get('completion_tokens') or 0
             out['content']=msg.get('content');out['thinking']=msg.get('reasoning') or msg.get('reasoning_content') or msg.get('thinking')
         raw=out['content']
         if isinstance(raw,str):
             match=re.match(r'^\s*<think>(.*?)</think>\s*(.*)$',raw,re.DOTALL)
             if match:out['thinking']=out['thinking'] or match.group(1);raw=match.group(2)
-        parsed=json.loads(raw)
+        out['output_limit_reached'] = (out['finish_reason'] in ('length','max_tokens')
+            or out['completion_tokens'] >= query.max_tokens
+            or (out['finish_reason'] is None and (raw is None or raw=='') and bool(out['thinking'])))
+        if raw is None or not isinstance(raw,str) or not raw.strip():
+            raise ValueError('Output token budget exhausted before a JSON response was produced' if out['output_limit_reached'] else 'No JSON response content returned by model')
+        try:
+            parsed=json.loads(raw)
+        except json.JSONDecodeError as exc:
+            if out['output_limit_reached']:
+                raise ValueError('Output token budget exhausted before a complete JSON response was produced') from exc
+            raise
         if not isinstance(parsed,dict) or set(parsed)!={'results'} or not isinstance(parsed['results'],list): raise ValueError('Expected results array')
         wanted={i['id']:i for i in items};seen={};duplicates=set()
         for row in parsed['results']:

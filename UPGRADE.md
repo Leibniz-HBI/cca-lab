@@ -1,3 +1,7 @@
+# Updating to CCA-Lab 0.14.2
+
+Restart the API and worker with the updated code and keep the same data directory. No migration is needed. Token-budget adaptation applies to new attempts; completed results are preserved. Hard-refresh the browser for updated option help.
+
 # Updating to CCA-Lab 0.14.1
 
 Restart the API and worker with the updated application and hard-refresh the browser. Keep the existing data directory. No schema change or migration is required. Error statistics are calculated from existing stored results, including historical retries.
