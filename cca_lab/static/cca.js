@@ -39,13 +39,7 @@ async function previewTask(){
  const preview=await api('/tasks/preview-request',{method:'POST',body:JSON.stringify({task,query,provider})});
  const box=$('#prompt-preview');box.hidden=false;box.replaceChildren();
  const note=document.createElement('p');note.className='small';note.textContent=preview.note+' Protocol: '+preview.prompt_protocol;box.append(note);
- for(const message of preview.request.messages){
-  const panel=document.createElement('section'),heading=document.createElement('h4'),content=document.createElement('pre');
-  heading.textContent=message.role.toUpperCase();content.textContent=message.content;panel.append(heading,content);box.append(panel);
- }
- const details=document.createElement('details'),summary=document.createElement('summary'),raw=document.createElement('pre');
- summary.textContent='Raw request JSON · '+preview.path;raw.textContent=JSON.stringify(preview.request,null,2);
- details.append(summary,raw);box.append(details);
+ box.insertAdjacentHTML('beforeend',jsonViewer(preview.request));
 }
 function listItems(key,values=[],label=key){
  return '<div class="cca-list" data-key="'+key+'"><div class="section-title"><strong>'+esc(label)+'</strong><button type="button" data-action="cca-add-item">+ Add</button></div><div class="cca-items">'+values.map(v=>listItem(v)).join('')+'</div></div>';

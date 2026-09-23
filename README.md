@@ -7,7 +7,9 @@ A Python workbench for reproducible LLM-based content analysis using CCA Schema 
 - English navigation, forms, feedback, reports and charts. Existing user-authored tasks and texts retain their original language.
 - Delete LLM connections, original CSV files, datasets, gold registrations, evaluations and prediction batches. Dependency checks block deletion of active runs; cascade deletion requires confirmation.
 - Experiment configurations: vary models, sampling parameters, context, output fields, thinking, joint/binary classification and batch size. Defaults: 8192 output tokens, 3 retries, seed 9721. See [EXPERIMENTS.md](EXPERIMENTS.md).
+- Prompt compiler comparison: user/assistant demonstrations or annotated reference examples in one system message. Compare both as experiment variants. Shared readable/JSON viewers with syntax highlighting support previews and logs.
 - Sort result tables by clicking column headers (click again to reverse). Numeric means sort numerically, unavailable values remain last, and sort choices survive table refreshes. Sorting also works in downloaded HTML reports.
+- Individual-run error statistics: frequencies by exact error message, affected documents and final outcomes (recovered, failed, fallback). Counts include failed document/category attempts from committed results, not distinct HTTP requests; documents may occur under multiple messages. Detailed error logs remain available.
 - Evaluation runtime comparison: active time, elapsed time, document throughput, successful document throughput, mean per-document latency and output-token throughput, alongside quality metrics.
 - **Prediction** workspace: select one dataset and multiple tasks. Each task produces an independent job. The worker saves combined CSV, JSON, JSONL, Parquet and manifest files on disk for repeated downloads.
 

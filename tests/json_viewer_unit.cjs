@@ -1,0 +1,15 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const context=vm.createContext({esc,document:{addEventListener(){},querySelectorAll(){return[]},body:{}},MutationObserver:class{observe(){}}});
+vm.runInContext(fs.readFileSync('cca_lab/static/json-viewer.js','utf8'),context);
+const value={messages:[{role:'system',content:'First line\nSecond line <script>alert(1)</script>'},{role:'user',content:JSON.stringify({text:'One\nTwo'})}],number:4,flag:true,missing:null};
+context.value=value;
+const readable=vm.runInContext('readableJSON(value)',context);
+assert.ok(readable.includes('First line\nSecond line'));
+assert.ok(readable.includes('One\nTwo'));
+assert.ok(!readable.includes('<script>'));
+const highlighted=vm.runInContext('highlightJSON(value)',context);
+assert.ok(highlighted.includes('json-key'));
+const decode=s=>s.replace(/<[^>]*>/g,'').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+assert.deepEqual(JSON.parse(decode(highlighted)),value);
+console.log('PASS: readable newlines, nested JSON, HTML escaping, exact highlighted JSON round-trip');

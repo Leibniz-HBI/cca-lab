@@ -289,6 +289,8 @@ def job_row(row, detail=False):
     result["query_count"]=request_counts(result["total"],snapshot)
     if detail:
         with connect() as db:
+            from .error_stats import error_statistics
+            result["error_statistics"]=error_statistics(db,result["id"])
             result["component_progress"]={r[0]:r[1] for r in db.execute("SELECT status,COUNT(*) FROM components WHERE job_id=? GROUP BY status",(result["id"],))}
     if detail:
         result["snapshot"] = snapshot

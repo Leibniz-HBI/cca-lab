@@ -113,6 +113,7 @@ class Profile(StrictModel):
 
 
 class Query(StrictModel):
+    prompt_compiler: Literal["roles", "system"] = "roles"
     prompt_protocol: Literal["experiment-v3"] = "experiment-v3"
     model: str = Field(min_length=1, max_length=300)
     concurrency: int = Field(default=4, ge=1, le=128)

@@ -41,3 +41,13 @@ Job details expose paginated LLM request logs and a streaming requests.jsonl dow
 Prediction exports preserve one row per document × task × configuration × seed, including component_results. requests.jsonl stores shared responses without duplicating them into every document. Evaluation report ZIPs include request logs and configuration metadata alongside quality, runtime and confidence tables. CSV, JSON, JSONL and Parquet retain the same aggregated classification representation.
 
 Batch size can affect model behavior and is part of the experimental configuration. Separate seed runs are summarized with means and sample standard deviations; one-run groups omit SD display and error bars. No empirical accuracy gain, calibration guarantee or throughput improvement is asserted. Validate the chosen model and configuration on representative gold data.
+
+## Prompt compiler (0.14.0)
+
+The selector next to Manual model IDs offers **User/assistant roles**, **Single system message**, and **Compare both**. The default remains User/assistant roles. Compare both expands the configuration product by two; each compiler has its own seed runs, request estimate and metric group. Configuration names and saved query snapshots identify the compiler (`roles` or `system`). Editing, duplication and reuse for prediction preserve this setting.
+
+User/assistant roles uses batched example dialogue turns. Single system message places the same selected examples in an Annotated reference examples section of the system message, with only supplied labels, optional context and annotations. Missing evidence is not represented as an empty evidence finding. Both modes retain the final user message containing target samples and use the same output schema, validation, retries and aggregation. Binary mode still shows only the selected category and its positive/negative reference assignments. No codebook schema change is needed.
+
+## Readable requests and JSON
+
+Prompt previews, request logs, snapshots and JSON result/error details share a viewer. Readable mode displays structured fields and decoded string line breaks; JSON strings nested inside messages/responses are expanded for reading. Check **JSON mode** for syntax-highlighted, valid JSON, including the escapes needed for exact string representation. The viewer does not alter saved requests, responses or downloads and escapes HTML in source text. It is read-only; JSON editing fields remain plain editable JSON.

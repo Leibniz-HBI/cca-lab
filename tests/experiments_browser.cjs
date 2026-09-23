@@ -17,6 +17,24 @@
  if(await page.locator('[name=rationale]').count())throw Error('Task execution settings remain');
  await page.locator('[data-action=close]').first().click();
  await page.evaluate(()=>location.hash='evaluations');await page.locator('#primary').click();await page.waitForSelector('[name=config_models] option');await page.locator('[name=config_models]').selectOption({index:0});
+ // Compiler variations and exact/readable preview share one viewer.
+ await page.locator('[name=config_prompt_compiler]').selectOption('both');
+ await page.locator('[data-action=config-generate]').click();
+ if(await page.locator('#configurations-table tbody tr').count()!==2)throw Error('Compiler variations missing');
+ await page.locator('summary',{hasText:'Prompt preview'}).click();
+ await page.locator('[name=preview_variant]').selectOption('1');
+ await page.locator('[data-action=config-preview]').click();
+ await page.waitForSelector('#configuration-preview .json-viewer');
+ const viewer=page.locator('#configuration-preview .json-viewer');
+ if(!(await viewer.locator('.json-readable').innerText()).includes('Annotated reference examples'))throw Error('Missing system references');
+ await viewer.locator('.json-mode').check();
+ const raw=JSON.parse(await viewer.locator('.json-raw').innerText());
+ if(raw.messages.map(m=>m.role).join(',')!=='system,user')throw Error('Wrong system compiler messages');
+ if(await viewer.locator('.json-key').count()===0)throw Error('Missing syntax highlighting');
+ await viewer.locator('.json-mode').uncheck();
+ await page.locator('summary',{hasText:'Prompt preview'}).click();
+ await page.locator('[data-action=config-clear]').click();
+ await page.locator('[name=config_prompt_compiler]').selectOption('roles');
  for(const [key,value] of [['max_tokens','8192'],['retries','3'],['seeds','9721']])if(await page.locator('[name=config_'+key+']').inputValue()!==value)throw Error('Wrong default '+key);
  await page.locator('[name=config_strategy]').selectOption('both');await page.locator('[name=config_use_context]').selectOption('both');await page.locator('[name=config_evidence]').selectOption('both');
  await page.locator('[name=config_seeds]').fill('9721,9722');await page.locator('[name=config_confidence]').selectOption('true');

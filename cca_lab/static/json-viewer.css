@@ -1,0 +1,9 @@
+.json-viewer{margin:12px 0;border:1px solid #d6e2ed;border-radius:10px;padding:14px;background:#f8fafc;min-width:0;max-width:100%;overflow:auto}
+.json-switch{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:14px}.json-switch input{width:auto}.json-switch small{font-weight:400;color:#51657b}
+.json-viewer pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;border:0;background:transparent;padding:6px 0;color:#20334a;font-size:13px;line-height:1.55}
+.json-tree{margin:0}.json-tree>div{padding:7px 0}.json-tree dt{font-family:monospace;font-weight:600;color:#176978;overflow-wrap:anywhere}.json-tree dd{margin:4px 0 0 14px;padding-left:12px;border-left:2px solid #dbe5ed;min-width:0}.json-key{color:#075985}.json-string{color:#166534}.json-number{color:#9333a3}.json-literal{color:#92400e}
+.json-viewer [hidden]{display:none!important}
+@media(max-width:600px){.json-switch{flex-wrap:wrap}.json-tree dd{margin-left:4px;padding-left:6px}.json-viewer{padding:9px}}
+
+.compiler-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:700px){.compiler-grid{grid-template-columns:1fr}}

@@ -38,14 +38,14 @@
  await page.locator('[data-action=edit-task]').click();await page.getByText('Prompt preview',{exact:true}).click();await page.locator('[data-action=prompt-preview]').click();
  await page.waitForFunction(()=>document.querySelector('#prompt-preview').textContent.includes('Positive evaluation'));
  if(!(await page.locator('#prompt-preview').innerText()).includes('Resolve speaker attribution'))throw Error('Missing prompt context');
- const initialRequest=await page.locator('#prompt-preview details pre').textContent().then(JSON.parse);
+ const initialRequest=await page.locator('#prompt-preview .json-raw').textContent().then(JSON.parse);
  if(initialRequest.messages.length!==4||!initialRequest.response_format)throw Error('Preview native schema missing');
  if(initialRequest.messages[0].content.includes('Required output schema:'))throw Error('Redundant native schema in prompt');
  await page.locator('[name=preview_provider]').selectOption('ollama');
  await page.locator('[name=preview_mode]').selectOption('none');
  await page.locator('[data-action=prompt-preview]').click();
  await page.waitForFunction(()=>document.querySelector('#prompt-preview').textContent.includes('Output JSON Schema:'));
- const alternateRequest=await page.locator('#prompt-preview details pre').textContent().then(JSON.parse);
+ const alternateRequest=await page.locator('#prompt-preview .json-raw').textContent().then(JSON.parse);
  if(alternateRequest.format||!alternateRequest.options)throw Error('Wrong Ollama prompt-only request');
  const preserved=await page.evaluate(()=>{const x=['First\n- literal bullet\n\nLast','  Second'];return JSON.stringify(x)===JSON.stringify(parseCriteria(criteriaText(x)));});
  if(!preserved)throw Error('Criteria multiline roundtrip failed');

@@ -1,5 +1,6 @@
 from task_fixtures import runtime_task
 from task_fixtures import task_spec
+from cca_lab import __version__
 import csv
 import io
 import json
@@ -71,7 +72,7 @@ def test_multitask_durable_formats_and_snapshots(client):
     table = pq.read_table(io.BytesIO(client.get('/api/predictions/' + id + '/download/parquet').content))
     assert table.num_rows == 4 and table['source.doc_id'].to_pylist() == ['001', '002', '001', '002']
     manifest = client.get('/api/predictions/' + id + '/download/manifest').json()
-    assert len(manifest['runs']) == 2 and manifest['framework_version'] == '0.13.0'
+    assert len(manifest['runs']) == 2 and manifest['framework_version'] == __version__
     assert client.delete('/api/predictions/' + id).status_code == 200
     assert not folder.exists() and client.get('/api/jobs').json() == []
 

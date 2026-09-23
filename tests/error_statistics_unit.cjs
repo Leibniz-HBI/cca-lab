@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('cca_lab/static/app.js','utf8');
+const ctx=vm.createContext({num:String,esc:v=>String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')});
+vm.runInContext(source.slice(source.indexOf('function renderErrorStatistics('),source.indexOf('async function showJob(')),ctx);
+ctx.stats={documents:2,recovered:1,failed:1,fallbacks:0,by_error:[{message:'Invalid <script>quote</script>',occurrences:3,documents:2,recovered:1,failed:1,fallbacks:0}]};
+const html=vm.runInContext('renderErrorStatistics(stats)',ctx);
+assert.ok(html.includes('Error statistics'));
+assert.ok(html.includes('data-sort-key="job-errors"'));
+assert.ok(html.includes('2 documents affected'));
+assert.ok(!html.includes('<script>'));
+assert.ok(!source.includes('Last error:'));
+console.log('PASS: error statistics rendering, sortable columns and escaped messages');

@@ -1,3 +1,11 @@
+# Updating to CCA-Lab 0.14.1
+
+Restart the API and worker with the updated application and hard-refresh the browser. Keep the existing data directory. No schema change or migration is required. Error statistics are calculated from existing stored results, including historical retries.
+
+# Updating to CCA-Lab 0.14.0
+
+Stop the API and worker gracefully, replace the application files (or rebuild the Docker image), and restart both with the same data directory. Hard-refresh the browser. Schema 7 is unchanged; no fresh setup or migration is needed from 0.13.x. Existing jobs continue with the user/assistant compiler. New jobs save the selected compiler explicitly.
+
 # Updating CCA-Lab 0.13.0 → 0.13.1
 
 Stop the API and worker gracefully, replace the application files (or rebuild the Docker image), then restart both using the same data directory/volume. Hard-refresh the browser. No database migration or fresh setup is needed: schema 7, job snapshots, requests and results are preserved. Queued jobs on independent endpoints become eligible automatically.
