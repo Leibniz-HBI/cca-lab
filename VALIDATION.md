@@ -1,3 +1,7 @@
+# Validation — CCA-Lab 0.14.3
+
+58 targeted Python tests passed: schema compatibility, output order, experiments and compiler variants. Tests check both provider envelopes, both compilers, joint/binary batches, unchanged enum/item bounds, order-preserving label deduplication, candidate matching and rejection of invalid types, unknown IDs and excess distinct labels. No live vLLM server test was performed.
+
 # Validation — CCA-Lab 0.14.2
 
 44 targeted Python tests passed. New tests cover OpenAI-compatible and Ollama length-stop responses with null or incomplete JSON, explicit missing-content errors, per-document doubling beyond the initial UI maximum, ordinary retries without doubling, saved request budgets, pause/resume persistence and retry exhaustion. Model responses are mocked.

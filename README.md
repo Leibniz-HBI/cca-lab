@@ -1,6 +1,6 @@
 # CCA-Lab
 
-A Python workbench for reproducible LLM-based Computational Content Analysis (CCA) using [CCA-Schema](https://leibniz-hbi.github.io/cca-schema) codebooks.
+A Python workbench for reproducible LLM-based content analysis using CCA Schema codebooks.
 
 ## Core features
 
@@ -96,7 +96,7 @@ When evidence and rationale are enabled (candidate comparison and confidence dis
 }
 ```
 
-Unknown or duplicate labels, invalid cardinality, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with any known codebook label, including competing categories. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
+Repeated IDs in model-returned label arrays are removed while preserving first-occurrence order. Unknown labels, invalid cardinality after deduplication, extra fields and invalid JSON trigger validation errors. Evidence must be an exact contiguous substring of the submitted text, associated with any known codebook label, including competing categories. Validated quotes receive zero-based Unicode character offsets, with an exclusive end; repeated quotes use the first occurrence. This validates quote existence, not semantic relevance. Empty evidence is allowed for decisions based on absence of evidence.
 
 Tasks have revisions. Jobs store immutable task/profile/query snapshots; later edits or deletion of the task or connection do not change those snapshots. Native CCA-Lab task JSON can be imported through `POST /api/tasks`. The file-import UI accepts standard CCA codebook JSON.
 

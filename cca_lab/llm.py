@@ -11,7 +11,7 @@ from .models import Profile, validate_labels
 
 
 def output_schema(task):
-    labels_schema = {"type": "array", "items": {"type": "string", "enum": [c.id for c in task.categories]}, "minItems": 1 if task.mode == "single" else 0, "maxItems": 1 if task.mode == "single" else len(task.categories), "uniqueItems": True}
+    labels_schema = {"type": "array", "items": {"type": "string", "enum": [c.id for c in task.categories]}, "minItems": 1 if task.mode == "single" else 0, "maxItems": 1 if task.mode == "single" else len(task.categories)}
     properties = {}
     if task.evidence:
         properties["evidence"] = {"type": "array", "items": {"type": "object", "properties": {
@@ -139,12 +139,21 @@ def mock_response(task, text, labels, rationale, confidence=1.0):
     return response
 
 
+def normalize_response_labels(labels, task):
+    """Grammar-compatible label arrays; enforce valid IDs after stable deduplication."""
+    if not isinstance(labels, list) or any(not isinstance(label, str) for label in labels):
+        raise ValueError("labels must be a list of strings")
+    labels = list(dict.fromkeys(labels))
+    validate_labels(labels, task)
+    return labels
+
+
 def parse_result(raw, task, text=None):
     obj = json.loads(raw)
     expected = ({"candidate_interpretations"} if task.alternatives else set()) | ({"self_reported_confidence"} if task.confidence else set()) | {"labels"} | ({"rationale"} if task.rationale else set()) | ({"evidence"} if task.evidence else set())
     if not isinstance(obj, dict) or set(obj) != expected:
         raise ValueError("JSON fields do not match the output schema")
-    validate_labels(obj["labels"], task)
+    obj["labels"] = normalize_response_labels(obj["labels"], task)
     if task.rationale and not isinstance(obj["rationale"], str):
         raise ValueError("rationale must be a string")
     if task.evidence:
@@ -176,7 +185,7 @@ def parse_result(raw, task, text=None):
         for alt in alternatives:
             if not isinstance(alt, dict) or set(alt) != {"labels", "justification", "supporting_quotes", "boundary_note"}:
                 raise ValueError("Invalid candidate interpretation fields")
-            validate_labels(alt["labels"], task)
+            alt["labels"] = normalize_response_labels(alt["labels"], task)
             key = tuple(sorted(alt["labels"]))
             if key in seen:
                 raise ValueError("Candidate label sets must be distinct")

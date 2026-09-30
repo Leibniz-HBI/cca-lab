@@ -1,3 +1,7 @@
+# Updating to CCA-Lab 0.14.3
+
+Restart the API and worker with the updated code and retain the existing data directory. No migration is required. New requests and previews use the grammar-compatible response schema, including requests from existing queued or resumed jobs. Completed results are not rewritten.
+
 # Updating to CCA-Lab 0.14.2
 
 Restart the API and worker with the updated code and keep the same data directory. No migration is needed. Token-budget adaptation applies to new attempts; completed results are preserved. Hard-refresh the browser for updated option help.
