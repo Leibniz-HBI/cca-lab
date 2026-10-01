@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Literal, Annotated
 from urllib.parse import urlsplit
@@ -109,6 +110,8 @@ class Profile(StrictModel):
     def env(cls, value):
         if value and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
             raise ValueError("Expected an environment variable name")
+        if value and value not in {x.strip() for x in os.environ.get('CCA_LAB_ALLOWED_API_KEY_ENVS','LLM_API_KEY').split(',')}:
+            raise ValueError('API key environment variable is not approved by the site administrator')
         return value
 
 

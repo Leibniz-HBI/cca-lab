@@ -1,0 +1,9 @@
+body:not(.signed-in)>aside,body:not(.signed-in)>main{display:none}body.signed-in>#login-panel{display:none}
+#login-panel{max-width:460px;margin:9vh auto;padding:36px;background:white;border:1px solid #dce3ec;border-radius:18px;box-shadow:0 12px 35px #10253a12}#login-panel .brand{color:#172438;margin-bottom:24px}#login-panel form,#account-content form{display:grid;gap:14px}#login-panel .actions{margin-top:12px}#login-error,#account-error{color:#b42318;white-space:pre-wrap}
+.project-switcher{margin-top:24px;display:grid;gap:8px}.project-switcher label,.project-switcher small{color:#b6c6da}.project-switcher select{width:100%;background:#20344b;color:white;border-color:#425670}.account-buttons{display:flex;flex-wrap:wrap;gap:6px}.account-buttons button{padding:7px 9px;font-size:13px}.account-strip{display:grid;gap:8px;margin-top:18px;border-top:1px solid #425670;padding-top:14px}#account-name{color:#b6c6da}#account-dialog{max-width:850px}#account-content,#account-error{padding:18px 28px}#account-content input[type=checkbox]{width:auto}#account-content form{margin:18px 0}body[data-project-role=view] #primary{display:none}
+aside{overflow-y:auto}.sidebar-utilities{margin-top:24px!important}
+@media(max-width:720px){#login-panel{margin:24px 14px}.project-switcher{margin-top:14px}.account-strip{margin-top:10px}.account-buttons{flex-wrap:wrap}}
+
+[hidden]{display:none!important}
+
+.account-icon{width:16px;height:16px;vertical-align:-3px;margin-right:4px;flex-shrink:0}.project-switcher>label{margin-bottom:0}.account-buttons button{display:inline-flex;align-items:center}

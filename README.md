@@ -4,6 +4,8 @@ A Python workbench for reproducible LLM-based content analysis using CCA Schema 
 
 ## Core features
 
+- Username/password accounts, site administration, and isolated project workspaces with admin, regular-user and view-only memberships. See [ACCOUNTS_PROJECTS.md](ACCOUNTS_PROJECTS.md).
+
 - English navigation, forms, feedback, reports and charts. Existing user-authored tasks and texts retain their original language.
 - Delete LLM connections, original CSV files, datasets, gold registrations, evaluations and prediction batches. Dependency checks block deletion of active runs; cascade deletion requires confirmation.
 - Experiment configurations: vary models, sampling parameters, context, output fields, thinking, joint/binary classification and batch size. Defaults: 8192 output tokens, 3 retries, seed 9721. See [EXPERIMENTS.md](EXPERIMENTS.md).
@@ -17,7 +19,7 @@ For installation and updating from 0.13.0, see [UPGRADE.md](UPGRADE.md). Evaluat
 
 ## Scheduling and evaluation details (0.13.1)
 
-Jobs on different server endpoints now execute concurrently (up to eight active endpoints). Jobs sharing the same URL scheme, hostname and port remain serialized, even across different connection profiles or API paths. Each job retains its configured request concurrency. Host aliases pointing at the same physical server cannot be detected automatically; reuse one hostname if they should share capacity. Imports and report/export generation still occupy the coordinator between request windows.
+Within each project, jobs on different server endpoints execute concurrently (up to eight active endpoints). Jobs sharing the same URL scheme, hostname and port remain serialized, even across different connection profiles or API paths. Each job retains its configured request concurrency. Host aliases pointing at the same physical server cannot be detected automatically; reuse one hostname if they should share capacity. Imports and report/export generation still occupy the coordinator between request windows.
 
 Evaluation details show the model and connection from each immutable job snapshot. Delayed detail/report responses cannot overwrite another dialog session. Switching connections immediately clears the available-model selection; choose models explicitly after loading. Existing generated configurations retain their original connection and are identified in the review table.
 
@@ -25,10 +27,11 @@ Evaluation details show the model and connection from each immutable job snapsho
 
 ```bash
 cp .env.example .env
+# Edit .env: set a random SECRET (32+ characters) and initial admin password (12+).
 docker compose up --build -d
 ```
 
-Open http://localhost:8080. Interactive API documentation: http://localhost:8080/docs.
+Open http://localhost:8080 and sign in with the administrator credentials configured in `.env`. Add project members from the sidebar. Interactive API documentation: http://localhost:8080/docs.
 
 ```bash
 docker compose logs -f worker
@@ -44,6 +47,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.lock
 pip install --no-deps -e .
+cp .env.example .env
+# Edit .env: set SECRET and initial administrator credentials.
+set -a; source .env; set +a
 export CCA_LAB_DATA="$PWD/data"
 python -m uvicorn cca_lab.api:app --host 127.0.0.1 --port 8080
 ```
@@ -52,11 +58,12 @@ In a second terminal, in the same project directory:
 
 ```bash
 source .venv/bin/activate
+set -a; source .env; set +a
 export CCA_LAB_DATA="$PWD/data"
 python -m cca_lab.worker
 ```
 
-Both processes must share `CCA_LAB_DATA` and API-key environment variables. Compose loads `.env`; direct Python execution requires explicitly exported variables. Worker locking uses `fcntl`, so use Docker or WSL2 on Windows.
+Both processes must share `SECRET`, `CCA_LAB_DATA` and API-key environment variables. Compose loads `.env`; direct Python execution requires explicitly exported variables. Worker locking uses `fcntl`, so use Docker or WSL2 on Windows.
 
 ## First prediction
 
@@ -80,7 +87,7 @@ The **Jobs & monitoring** workspace remains available for individual jobs, inclu
 
 Returned thinking is saved independently of requested rationale, including when a server returns it despite a disabled request. Ollama `message.thinking`, compatible API `reasoning`, `reasoning_content` or `thinking`, and explicit leading `<think>` blocks are supported. Only text actually returned by the server can be saved. Increase the output-token budget when thinking consumes it.
 
-The profile stores the **name** of an API-key environment variable, not its value. Model IDs can be entered manually. Structured output can use JSON Schema, JSON object or prompt-only instructions; local validation always applies. A host model server must be reachable from the container network; host-only localhost binding may prevent this.
+The profile stores the **name** of an API-key environment variable, not its value. The name must appear in the site operator’s `CCA_LAB_ALLOWED_API_KEY_ENVS` allowlist (default `LLM_API_KEY`). Model IDs can be entered manually. Structured output can use JSON Schema, JSON object or prompt-only instructions; local validation always applies. A host model server must be reachable from the container network; host-only localhost binding may prevent this.
 
 ## Task and result schema
 
@@ -158,7 +165,7 @@ Uploads stream to disk; imports and prediction exports use bounded batches. Defa
 
 A 500 MB input needs more than 500 MB storage: original CSV, database records, results, WAL and every prediction export are additional. Multiple tasks, rationale and thinking can increase storage substantially. RAM use is bounded by batch and output sizes rather than total input rows. Evaluation gold datasets have a separate default 50,000-row limit and at most 50 model configurations.
 
-This is a single-server, trusted-access application. It has no authentication, SSO, per-user quotas, distributed workers, automatic hyperparameter search or global rate limiter. Use local/SSH access or an authenticated reverse proxy. Keep SQLite on a local filesystem. Back up the full data directory with both processes stopped, or use a consistent SQLite backup plus associated files. Lists show the most recent 500 jobs/evaluations/predictions; results use keyset pagination.
+This is a single-server application for trusted research teams, with account authentication and project permissions. It has no SSO, per-user quotas, distributed workers, automatic hyperparameter search or global model-request rate limiter. Use HTTPS with secure cookies for remote access; see [ACCOUNTS_PROJECTS.md](ACCOUNTS_PROJECTS.md) for deployment and worker limits. Keep SQLite on a local filesystem. Back up the full data directory with both processes stopped, or use a consistent SQLite backup plus associated files. Lists show the most recent 500 jobs/evaluations/predictions; results use keyset pagination.
 
 ## Tests
 

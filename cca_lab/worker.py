@@ -209,5 +209,39 @@ def main():
         lock.close()
 
 
+def supervisor():
+    """One existing coordinator per isolated project database."""
+    import os
+    import subprocess
+    import sys
+    from .accounts import initialize,registry,project_path,base_root
+    from .logging_config import configure_logging
+    configure_logging()
+    initialize()
+    lock=open(base_root()/'supervisor.lock','a')
+    try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except BlockingIOError:raise SystemExit('A project supervisor is already running')
+    signal.signal(signal.SIGTERM,lambda *_:stopping.set())
+    signal.signal(signal.SIGINT,lambda *_:stopping.set())
+    children={}
+    try:
+        while not stopping.is_set():
+            with registry() as db:projects=[dict(r) for r in db.execute('SELECT * FROM projects')]
+            for project in projects:
+                old=children.get(project['id'])
+                if old is None or old.poll() is not None:
+                    env={**os.environ,'CCA_LAB_DATA':str(project_path(project)),'CCA_LAB_PROJECT_WORKER':'1'}
+                    log.info('project_worker_starting project_id=%s',project['id'])
+                    children[project['id']]=subprocess.Popen([sys.executable,'-m','cca_lab.worker'],env=env)
+            stopping.wait(2)
+    finally:
+        for child in children.values():
+            if child.poll() is None:child.terminate()
+        for child in children.values():child.wait()
+        lock.close()
+
+
 if __name__ == "__main__":
-    main()
+    import os
+    if os.environ.get('CCA_LAB_PROJECT_WORKER')=='1':main()
+    else:supervisor()

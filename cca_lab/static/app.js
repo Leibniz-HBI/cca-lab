@@ -29,6 +29,7 @@ const area = (label,name,value='',hint='') => `<label>${label}<textarea name="${
 const select = (label,name,options) => `<label>${label}<select name="${name}">${options}</select></label>`;
 const empty = (title,description,action,label) => `<div class="panel empty"><div class="glyph">▤</div><h2>${title}</h2><p>${description}</p><button class="primary" data-action="${action}">${label}</button></div>`;
 async function refresh() {
+  if(!window.accountState?.ready||!accountState.project)return;
   if(loading) return; loading=true;
   try {
     const [tasks,datasets,profiles,jobs,evaluations,goldSets,predictions,health] = await Promise.all(['/tasks','/datasets','/profiles','/jobs','/evaluations','/gold-sets','/predictions','/health'].map(p=>api(p)));
@@ -100,6 +101,7 @@ function uploadFile(f) {
   xhr.upload.onprogress=e=>{if(e.lengthComputable){$('#upload-progress').value=e.loaded/e.total*100;$('#upload-label').textContent=Math.round(e.loaded/e.total*100)+' % uploaded';}};
   xhr.onerror=()=>reject(Error('Upload connection interrupted; upload again.'));
   xhr.onload=()=>{if(xhr.status>=200&&xhr.status<300)resolve();else{let m=xhr.statusText;try{m=JSON.parse(xhr.responseText).detail}catch{}reject(Error(m));}};
+  xhr.setRequestHeader('X-CSRF-Token',accountState.csrf);xhr.setRequestHeader('X-Project-ID',accountState.project.id);
   xhr.send(file);
  });
 }

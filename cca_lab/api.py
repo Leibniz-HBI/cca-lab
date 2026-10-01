@@ -29,7 +29,8 @@ log = logging.getLogger(__name__)
 async def lifespan(app):
     from .logging_config import configure_logging
     configure_logging()
-    init()
+    from .accounts import initialize
+    initialize()
     log.info("api_started")
     yield
     log.info("api_stopped")
@@ -51,8 +52,9 @@ async def request_logging(request: Request, call_next):
     route = request.scope.get("route")
     path = getattr(route, "path", "<static-or-unmatched>")
     level = logging.WARNING if response.status_code >= 400 else logging.DEBUG
-    log.log(level, "request_completed request_id=%s method=%s route=%s status=%s seconds=%.3f",
-            request_id, request.method, path, response.status_code, time.monotonic()-started)
+    log.log(level, "request_completed request_id=%s method=%s route=%s status=%s seconds=%.3f user_id=%s project_id=%s",
+            request_id, request.method, path, response.status_code, time.monotonic()-started,
+            getattr(request.state,"user",{}).get("id","-"),getattr(request.state,"project",{}).get("id","-"))
     response.headers["X-Request-ID"] = request_id
     return response
 
@@ -529,5 +531,9 @@ def export_requests(id: str):
     from .executor import request_chunks
     with connect() as db:get(db,'jobs',id)
     return StreamingResponse(request_chunks([id]),media_type='application/x-ndjson',headers={'Content-Disposition':f'attachment; filename="requests-{id}.jsonl"'})
+
+from .accounts import router as accounts_router, AccessMiddleware
+app.include_router(accounts_router)
+app.add_middleware(AccessMiddleware)
 
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="frontend")

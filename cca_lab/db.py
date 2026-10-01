@@ -1,3 +1,7 @@
+from contextvars import ContextVar
+
+project_root = ContextVar("project_root", default=None)
+
 import json
 import os
 import sqlite3
@@ -8,7 +12,7 @@ from pathlib import Path
 
 
 def root():
-    path = Path(os.environ.get("CCA_LAB_DATA", "data")).resolve()
+    path = (project_root.get() or Path(os.environ.get("CCA_LAB_DATA", "data"))).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path
 

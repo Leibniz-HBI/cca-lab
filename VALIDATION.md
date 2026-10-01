@@ -1,3 +1,13 @@
+# Validation — CCA-Lab 0.15.0
+
+164 Python tests passed. Access-control coverage includes real credential login, CSRF and origin rejection, session revocation, role enforcement, cross-project resource isolation, parallel request isolation, download authorization after membership removal, account disabling, password reset/change, SECRET rotation, registration controls, last-administrator protection and LLM credential-environment restrictions. Existing tests authenticate through the real login API; no production bypass is provided. Two obsolete duplicate-label rejection expectations were updated to the order-preserving normalization already introduced in 0.14.3.
+
+Six JavaScript unit suites pass: configuration expansion, detail races, model selection, table sorting, error statistics and JSON viewers. The application wheel builds and includes the account module, UI assets and CCA schema. Python compilation and account JavaScript syntax checks pass.
+
+The account browser workflow uses a disposable API and real project-worker supervisor with mock model responses. It verifies login/logout, site-admin account creation, project creation/switching, member administration, read-only controls, isolated task lists, evaluation execution in a new project and project-scoped CSV downloads. The existing codebook and experiment browser workflows also pass, covering imports, task/gold editing, previews, evaluations, binary predictions, sorting, request logs, exports and mobile layout. They use the shared real-login helper in `tests/browser_auth.cjs`. Run browser workflows separately against fresh installations with `CCA_LAB_ADMIN_PASSWORD=browser-password-1234`, a valid SECRET and Playwright Chromium installed. Set `CCA_LAB_TEST_URL` if needed; `CCA_LAB_SCREENSHOT_DIR` controls screenshots. Existing-workflow test credentials can be overridden with `CCA_LAB_TEST_USERNAME` and `CCA_LAB_TEST_PASSWORD`.
+
+Model calls are mocked. Docker, a production HTTPS proxy, live-model performance and large multi-project capacity were not benchmarked. The three Python warnings are existing test-client deprecations and a single-class metric fixture.
+
 # Validation — CCA-Lab 0.14.3
 
 58 targeted Python tests passed: schema compatibility, output order, experiments and compiler variants. Tests check both provider envelopes, both compilers, joint/binary batches, unchanged enum/item bounds, order-preserving label deduplication, candidate matching and rejection of invalid types, unknown IDs and excess distinct labels. No live vLLM server test was performed.

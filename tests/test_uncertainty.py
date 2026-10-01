@@ -24,7 +24,7 @@ def test_structured_alternatives_and_confidence_validation():
     for bad in [True, -0.01, 1.01, float('nan'), float('inf'), '0.5', None]:
         with pytest.raises(ValueError):
             parse_result(json.dumps({**obj, 'self_reported_confidence': bad}), task, 'Alpha Beta')
-    for labels in [['A'], ['unknown'], ['B', 'B'], ['A', 'B'], []]:
+    for labels in [['A'], ['unknown'], ['A', 'B'], []]:
         broken = example()
         broken['candidate_interpretations'][0]['labels'] = labels
         with pytest.raises(ValueError):

@@ -20,6 +20,7 @@ include = ["cca_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["access_control: explicit authentication and authorization tests"]
 
 [tool.setuptools.dynamic]
 version = {attr = "cca_lab.__version__"}

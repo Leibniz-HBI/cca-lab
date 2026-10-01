@@ -1,3 +1,11 @@
+# Updating to CCA-Lab 0.15.0
+
+Stop both API and worker and back up the entire data directory. Set `SECRET` (random, at least 32 characters), `CCA_LAB_ADMIN_USERNAME` and `CCA_LAB_ADMIN_PASSWORD` (at least 12 characters) in `.env` before restarting both services with the new code. Compose loads `.env`; direct launches must export it. Hard-refresh the browser and sign in with the configured administrator credentials.
+
+Existing schema-7 data becomes the initial administrator's **Default project**, with files and snapshots preserved in place. Other users have no access until added as members. A separate account registry and per-project databases provide isolation; the experiment database schema remains unchanged. The worker entry point now supervises project coordinators. Bootstrap credentials do not reset an existing account registry. Keep SECRET stable; changing it signs everyone out.
+
+API integrations now require a session cookie, a project ID and a CSRF token for mutations. Configure approved LLM key environment names with `CCA_LAB_ALLOWED_API_KEY_ENVS`. See [ACCOUNTS_PROJECTS.md](ACCOUNTS_PROJECTS.md) for role permissions, storage, backups and HTTPS setup.
+
 # Updating to CCA-Lab 0.14.3
 
 Restart the API and worker with the updated code and retain the existing data directory. No migration is required. New requests and previews use the grammar-compatible response schema, including requests from existing queued or resumed jobs. Completed results are not rewritten.

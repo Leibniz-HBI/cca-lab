@@ -88,7 +88,6 @@ def test_multi_label():
     task = runtime_task(TASK, mode='multi', rationale=True)
     assert parse_result('{"labels":[],"rationale":"No evidence"}', task)["labels"] == []
     assert parse_result('{"labels":["FOR","AGAINST"],"rationale":"Both"}', task)['labels'] == ['FOR', 'AGAINST']
-    with pytest.raises(ValueError):
-        parse_result('{"labels":["FOR","FOR"],"rationale":""}', task)
+    assert parse_result('{"labels":["FOR","FOR"],"rationale":""}', task)["labels"] == ["FOR"]
 
 

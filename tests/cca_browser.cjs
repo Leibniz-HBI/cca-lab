@@ -4,8 +4,9 @@
  const context=await browser.newContext({viewport:{width:1440,height:1050}});const page=await context.newPage(),errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=500)errors.push(r.status()+' '+r.url())});
  const poll=async fn=>{for(let i=0;i<150;i++){if(await fn())return;await new Promise(r=>setTimeout(r,200));}throw Error('Background operation timed out');};
+ await require('./browser_auth.cjs')(page,process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099');
  const post=async(path,data)=>{const r=await page.request.post((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099')+'/api'+path,{data:typeof data==='string'?Buffer.from(data):data});if(!r.ok())throw Error(await r.text());return r.json()};
- await page.goto((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099'));await page.waitForFunction(()=>document.querySelector('#title').textContent==='Define tasks');
+ await page.goto((process.env.CCA_LAB_TEST_URL||'http://127.0.0.1:8099'));await page.waitForFunction(()=>accountState.ready&&document.body.classList.contains('signed-in')&&document.querySelector('[data-action=cca-import]'));
  if(await page.locator('nav[aria-label="Research workflow"] a').count()!==5)throw Error('Workflow must have 5 steps');
  if(await page.locator('.config-section a[href="#profiles"]').count()!==1)throw Error('Missing separate config');
 
